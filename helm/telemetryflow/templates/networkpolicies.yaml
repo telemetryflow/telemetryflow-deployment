@@ -1,0 +1,254 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $ns := include "telemetryflow.namespace" . }}
+{{- $release := .Release.Name }}
+
+{{/*
+Default deny-all ingress and egress
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $release }}-default-deny-all
+  namespace: {{ $ns }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+{{/*
+Allow DNS egress
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $release }}-allow-dns-egress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+{{/*
+Allow backend to communicate with postgres, clickhouse, redis, nats
+*/}}
+{{- if .Values.tfoBackend.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $release }}-allow-backend-to-infra
+  namespace: {{ $ns }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $release }}
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.postgresql.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $release }}
+              app.kubernetes.io/component: postgresql
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.clickhouse.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $release }}
+              app.kubernetes.io/component: clickhouse
+      ports:
+        - port: 8123
+          protocol: TCP
+        - port: 9000
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.cacheRedis.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $release }}
+              app.kubernetes.io/component: cache-redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.redisMaster.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $release }}
+              app.kubernetes.io/component: redis-master
+      ports:
+        - port: 6379
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.nats.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $release }}
+              app.kubernetes.io/component: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    {{- end }}
+---
+{{- end }}
+
+{{/*
+Allow collector to communicate with backend
+*/}}
+{{- if .Values.tfoCollector.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $release }}-allow-collector-to-backend
+  namespace: {{ $ns }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $release }}
+      app.kubernetes.io/component: collector
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $release }}
+              app.kubernetes.io/component: backend
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+{{/*
+Allow ingress to collector (OTLP ports)
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $release }}-allow-ingress-to-collector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $release }}
+      app.kubernetes.io/component: collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        {{- if .Values.tfoCollector.ports.otlp.enabled }}
+        - port: {{ .Values.tfoCollector.ports.otlp.containerPort }}
+          protocol: {{ .Values.tfoCollector.ports.otlp.protocol }}
+        {{- end }}
+        {{- if .Values.tfoCollector.ports.otlpHttp.enabled }}
+        - port: {{ .Values.tfoCollector.ports.otlpHttp.containerPort }}
+          protocol: {{ .Values.tfoCollector.ports.otlpHttp.protocol }}
+        {{- end }}
+        {{- if .Values.tfoCollector.ports.metrics.enabled }}
+        - port: {{ .Values.tfoCollector.ports.metrics.containerPort }}
+          protocol: {{ .Values.tfoCollector.ports.metrics.protocol }}
+        {{- end }}
+        {{- if .Values.tfoCollector.ports.healthCheck.enabled }}
+        - port: {{ .Values.tfoCollector.ports.healthCheck.containerPort }}
+          protocol: {{ .Values.tfoCollector.ports.healthCheck.protocol }}
+        {{- end }}
+---
+{{- end }}
+
+{{/*
+Allow agent to communicate with collector
+*/}}
+{{- if .Values.tfoAgent.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $release }}-allow-agent-to-collector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $release }}
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.tfoCollector.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $release }}
+              app.kubernetes.io/component: collector
+      ports:
+        {{- if .Values.tfoCollector.ports.otlp.enabled }}
+        - port: {{ .Values.tfoCollector.ports.otlp.containerPort }}
+          protocol: {{ .Values.tfoCollector.ports.otlp.protocol }}
+        {{- end }}
+        {{- if .Values.tfoCollector.ports.otlpHttp.enabled }}
+        - port: {{ .Values.tfoCollector.ports.otlpHttp.containerPort }}
+          protocol: {{ .Values.tfoCollector.ports.otlpHttp.protocol }}
+        {{- end }}
+    {{- end }}
+---
+{{- end }}
+
+{{/*
+Allow ingress controller to communicate with backend and viz
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $release }}-allow-ingress-controller
+  namespace: {{ $ns }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $release }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        {{- if .Values.tfoBackend.enabled }}
+        - port: 8080
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.tfoViz.enabled }}
+        - port: 8080
+          protocol: TCP
+        {{- end }}
+{{- end }}

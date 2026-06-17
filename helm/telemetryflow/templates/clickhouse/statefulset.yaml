@@ -1,0 +1,147 @@
+{{- if .Values.clickhouse.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-clickhouse
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http
+      protocol: TCP
+    - name: native
+      port: 9000
+      targetPort: native
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-clickhouse-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http
+      protocol: TCP
+    - name: native
+      port: 9000
+      targetPort: native
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-clickhouse
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  replicas: {{ .Values.clickhouse.replicas }}
+  serviceName: {{ include "telemetryflow.fullname" . }}-clickhouse-headless
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse
+    spec:
+      securityContext:
+        fsGroup: 101
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: clickhouse
+          image: "{{ .Values.clickhouse.image.repository }}:{{ .Values.clickhouse.image.tag }}"
+          imagePullPolicy: {{ .Values.clickhouse.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          env:
+            - name: CLICKHOUSE_DB
+              value: {{ .Values.clickhouse.env.CLICKHOUSE_DB | quote }}
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.clickhouse.env.CLICKHOUSE_USER | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" . }}-db-secret
+                  key: CLICKHOUSE_PASSWORD
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: {{ .Values.clickhouse.env.CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT | quote }}
+            - name: CLICKHOUSE_LOG_LEVEL
+              value: {{ .Values.clickhouse.env.CLICKHOUSE_LOG_LEVEL | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.clickhouse.ports.http.containerPort }}
+              protocol: TCP
+            - name: native
+              containerPort: {{ .Values.clickhouse.ports.native.containerPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: clickhouse-data
+              mountPath: /var/lib/clickhouse
+            - name: clickhouse-logs
+              mountPath: /var/log/clickhouse-server
+          resources:
+            {{- toYaml .Values.clickhouse.resources | nindent 12 }}
+          {{- if .Values.clickhouse.healthChecks.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: {{ .Values.clickhouse.healthChecks.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.clickhouse.healthChecks.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.clickhouse.healthChecks.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.clickhouse.healthChecks.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.clickhouse.healthChecks.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: {{ .Values.clickhouse.healthChecks.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.clickhouse.healthChecks.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.clickhouse.healthChecks.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.clickhouse.healthChecks.readiness.failureThreshold }}
+          {{- end }}
+      volumes:
+        - name: clickhouse-logs
+          emptyDir: {}
+  {{- if .Values.clickhouse.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: clickhouse-data
+        labels:
+          {{- include "telemetryflow.labels" . | nindent 10 }}
+          app.kubernetes.io/component: clickhouse
+      spec:
+        accessModes:
+          - {{ .Values.clickhouse.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if .Values.clickhouse.persistence.storageClassName }}
+        storageClassName: {{ .Values.clickhouse.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.persistence.size }}
+  {{- end }}
+{{- end }}

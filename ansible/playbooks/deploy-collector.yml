@@ -1,0 +1,5 @@
+---
+- name: Deploy collector
+  hosts: tfo_node
+  roles:
+    - role: tfo_collector

@@ -1,0 +1,28 @@
+services:
+  portainer:
+    image: {{ tfo_portainer_image }}
+    container_name: {{ tfo_portainer_container_name }}
+    restart: {{ tfo_portainer_restart_policy }}
+    command: --tls-cert-dir=/data/certs
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_portainer_container_ip }}
+    ports:
+      - "{{ tfo_portainer_port }}:9443"
+      - "{{ tfo_portainer_http_port }}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - {{ tfo_portainer_data_dir }}:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_portainer_log_max_size }}"
+        max-file: "{{ tfo_portainer_log_max_file }}"
+    labels:
+      - "com.telemetryflow.service=portainer"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

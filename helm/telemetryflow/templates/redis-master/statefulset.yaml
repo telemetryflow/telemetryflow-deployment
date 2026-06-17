@@ -1,0 +1,129 @@
+{{- if .Values.redisMaster.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-redis-master
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-master
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-redis-master-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-master
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-master
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-redis-master
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-master
+spec:
+  replicas: 1
+  serviceName: {{ include "telemetryflow.fullname" . }}-redis-master-headless
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis-master
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redis-master
+      annotations:
+        checksum/values: {{ toYaml .Values.redisMaster | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis-master
+          {{- include "telemetryflow.image" (dict "repository" .Values.redisMaster.image.repository "tag" .Values.redisMaster.image.tag "pullPolicy" .Values.redisMaster.image.pullPolicy) | nindent 10 }}
+          command:
+            - redis-server
+            - --maxmemory
+            - {{ .Values.redisMaster.env.REDIS_MAXMEMORY | default "400mb" | quote }}
+            - --maxmemory-policy
+            - {{ .Values.redisMaster.env.REDIS_MAXMEMORY_POLICY | default "noeviction" | quote }}
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+          env:
+            - name: TZ
+              value: {{ .Values.global.timezone | default "UTC" | quote }}
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.redisMaster.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  {{- if .Values.redisMaster.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "telemetryflow.labels" . | nindent 10 }}
+          app.kubernetes.io/component: redis-master
+      spec:
+        accessModes:
+          - {{ .Values.redisMaster.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if .Values.redisMaster.persistence.storageClassName }}
+        storageClassName: {{ .Values.redisMaster.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.redisMaster.persistence.size }}
+  {{- end }}
+{{- end }}

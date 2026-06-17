@@ -1,0 +1,36 @@
+---
+tfo_backend_image: "telemetryflow/backend:{{ tfo_backend_version | default('latest') }}"
+tfo_backend_container_name: "telemetryflow_platform_backend"
+tfo_backend_restart_policy: "unless-stopped"
+tfo_backend_log_max_size: "50m"
+tfo_backend_log_max_file: "5"
+tfo_backend_healthcheck_interval: "30s"
+tfo_backend_healthcheck_timeout: "10s"
+tfo_backend_healthcheck_retries: 3
+
+tfo_backend_db_host: "{{ tfo_postgres_container_ip }}"
+tfo_backend_db_port: "{{ tfo_postgres_port }}"
+tfo_backend_db_name: "{{ tfo_postgres_db }}"
+tfo_backend_db_user: "{{ tfo_postgres_user }}"
+tfo_backend_db_password: "<CHANGE_ME>"
+
+tfo_backend_clickhouse_host: "{{ tfo_clickhouse_container_ip }}"
+tfo_backend_clickhouse_http_port: "{{ tfo_clickhouse_http_port }}"
+tfo_backend_clickhouse_user: "{{ tfo_clickhouse_user }}"
+tfo_backend_clickhouse_password: "<CHANGE_ME>"
+
+tfo_backend_redis_host: "{{ tfo_redis_container_ip }}"
+tfo_backend_redis_port: "{{ tfo_redis_port }}"
+tfo_backend_redis_password: "<CHANGE_ME>"
+
+tfo_backend_nats_host: "{{ tfo_nats_container_ip }}"
+tfo_backend_nats_port: "{{ tfo_nats_client_port }}"
+
+tfo_backend_jwt_secret: "<CHANGE_ME>"
+tfo_backend_session_secret: "<CHANGE_ME>"
+tfo_backend_encryption_key: "<CHANGE_ME>"
+tfo_backend_mfa_encryption_key: "<CHANGE_ME>"
+tfo_backend_llm_encryption_key: "<CHANGE_ME>"
+
+tfo_backend_env_file: "{{ tfo_platform_config_dir }}/backend.env"
+tfo_backend_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.backend.yml"

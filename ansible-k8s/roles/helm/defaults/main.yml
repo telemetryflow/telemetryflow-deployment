@@ -1,0 +1,8 @@
+---
+telemetryflow_namespace: telemetryflow
+telemetryflow_chart_name: telemetryflow
+telemetryflow_chart_version: "0.1.0"
+telemetryflow_repo_url: "https://charts.telemetryflow.example.com"
+telemetryflow_repo_name: telemetryflow
+telemetryflow_values_file: "{{ playbook_dir }}/../values/telemetryflow-values.yaml"
+telemetryflow_release_name: telemetryflow

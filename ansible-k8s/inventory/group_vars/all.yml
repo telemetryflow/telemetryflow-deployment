@@ -1,0 +1,52 @@
+---
+cluster_name: telemetryflow-cluster
+cluster_domain: cluster.local
+cluster_cidr: 10.42.0.0/16
+service_cidr: 10.43.0.0/16
+cluster_dns: 10.43.0.10
+
+rke2_version: v1.31.4+rke2r1
+rke2_channel: stable
+
+rke2_server_ip: "{{ hostvars[groups['masters'][0]]['ansible_host'] }}"
+rke2_token: "<CHANGE_ME>"
+
+helm_version: "3.16.4"
+kubectl_version: "1.31.4"
+
+telemetryflow_namespace: telemetryflow
+telemetryflow_chart_version: "0.1.0"
+telemetryflow_repo_url: "https://charts.telemetryflow.example.com"
+telemetryflow_values_file: "{{ playbook_dir }}/../values/telemetryflow-values.yaml"
+
+node_labels:
+  - key: node-role.kubernetes.io/worker
+    value: "true"
+
+node_taints: []
+
+sysctl_params:
+  - name: net.bridge.bridge-nf-call-iptables
+    value: 1
+  - name: net.bridge.bridge-nf-call-ip6tables
+    value: 1
+  - name: net.ipv4.ip_forward
+    value: 1
+
+kernel_modules:
+  - br_netfilter
+  - overlay
+  - nf_conntrack
+
+ntp_servers:
+  - pool.ntp.org
+
+proxy_http: ""
+proxy_https: ""
+proxy_no: "127.0.0.1,localhost"
+
+registry_mirror: ""
+registry_ca_cert: ""
+
+backup_location: /opt/rke2-backups
+backup_retention_days: 7

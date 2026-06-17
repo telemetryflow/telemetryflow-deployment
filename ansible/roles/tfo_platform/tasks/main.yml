@@ -1,0 +1,50 @@
+---
+- name: Include node role
+  ansible.builtin.include_role:
+    name: tfo_backend
+  when: tfo_platform_role == "node"
+  tags: [backend]
+
+- name: Include postgres role
+  ansible.builtin.include_role:
+    name: tfo_postgres
+  when: tfo_platform_role == "db"
+  tags: [postgres]
+
+- name: Include clickhouse role
+  ansible.builtin.include_role:
+    name: tfo_clickhouse
+  when: tfo_platform_role == "clickhouse"
+  tags: [clickhouse]
+
+- name: Include collector role (runs on node)
+  ansible.builtin.include_role:
+    name: tfo_collector
+  when: tfo_platform_role == "node"
+  tags: [collector]
+
+- name: Include redis role (runs on node)
+  ansible.builtin.include_role:
+    name: tfo_redis
+  when: tfo_platform_role == "node"
+  tags: [redis]
+
+- name: Include nats role (runs on node)
+  ansible.builtin.include_role:
+    name: tfo_nats
+  when: tfo_platform_role == "node"
+  tags: [nats]
+
+- name: Include viz role (runs on node)
+  ansible.builtin.include_role:
+    name: tfo_viz
+  when: tfo_platform_role == "node"
+  tags: [viz]
+
+- name: Include portainer role (runs on node, optional)
+  ansible.builtin.include_role:
+    name: tfo_portainer
+  when:
+    - tfo_platform_role == "node"
+    - tfo_portainer_enabled | bool
+  tags: [portainer]

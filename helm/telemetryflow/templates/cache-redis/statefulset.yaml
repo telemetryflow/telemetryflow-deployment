@@ -1,0 +1,129 @@
+{{- if .Values.cacheRedis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-cache-redis
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-cache-redis-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-redis
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-cache-redis
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cache-redis
+spec:
+  replicas: 1
+  serviceName: {{ include "telemetryflow.fullname" . }}-cache-redis-headless
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cache-redis
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cache-redis
+      annotations:
+        checksum/values: {{ toYaml .Values.cacheRedis | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: cache-redis
+          {{- include "telemetryflow.image" (dict "repository" .Values.cacheRedis.image.repository "tag" .Values.cacheRedis.image.tag "pullPolicy" .Values.cacheRedis.image.pullPolicy) | nindent 10 }}
+          command:
+            - redis-server
+            - --maxmemory
+            - {{ .Values.cacheRedis.env.REDIS_MAXMEMORY | default "200mb" | quote }}
+            - --maxmemory-policy
+            - {{ .Values.cacheRedis.env.REDIS_MAXMEMORY_POLICY | default "allkeys-lru" | quote }}
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+          env:
+            - name: TZ
+              value: {{ .Values.global.timezone | default "UTC" | quote }}
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.cacheRedis.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  {{- if .Values.cacheRedis.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "telemetryflow.labels" . | nindent 10 }}
+          app.kubernetes.io/component: cache-redis
+      spec:
+        accessModes:
+          - {{ .Values.cacheRedis.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if .Values.cacheRedis.persistence.storageClassName }}
+        storageClassName: {{ .Values.cacheRedis.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.cacheRedis.persistence.size }}
+  {{- end }}
+{{- end }}

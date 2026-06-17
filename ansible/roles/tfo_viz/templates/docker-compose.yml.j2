@@ -1,0 +1,31 @@
+services:
+  viz:
+    image: {{ tfo_viz_image }}
+    container_name: {{ tfo_viz_container_name }}
+    restart: {{ tfo_viz_restart_policy }}
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_viz_container_ip }}
+    ports:
+      - "{{ tfo_viz_http_port }}:{{ tfo_viz_http_port }}"
+      - "{{ tfo_viz_https_port }}:{{ tfo_viz_https_port }}"
+    volumes:
+      - {{ tfo_platform_config_dir }}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_viz_log_max_size }}"
+        max-file: "{{ tfo_viz_log_max_file }}"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:{{ tfo_viz_http_port }}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.telemetryflow.service=viz"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

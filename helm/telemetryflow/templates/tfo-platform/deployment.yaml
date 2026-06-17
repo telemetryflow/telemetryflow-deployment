@@ -1,0 +1,306 @@
+{{- if .Values.tfoBackend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-backend
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-backend
+  {{- with .Values.global.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.tfoBackend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: tfo-backend
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: tfo-backend
+      annotations:
+        checksum/config: {{ toJson .Values.tfoBackend.env | sha256sum }}
+        checksum/secrets: {{ toJson .Values.secrets.backend | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoBackend.serviceAccount "component" "tfo-backend" "context" $) }}
+      securityContext:
+        runAsNonRoot: {{ .Values.tfoBackend.securityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.tfoBackend.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.tfoBackend.securityContext.runAsGroup }}
+        readOnlyRootFilesystem: {{ .Values.tfoBackend.securityContext.readOnlyRootFilesystem }}
+      initContainers:
+        {{- if .Values.tfoBackend.initContainers.waitForDb.enabled }}
+        - name: wait-for-db
+          image: "{{ .Values.tfoBackend.initContainers.waitForDb.image.repository }}:{{ .Values.tfoBackend.initContainers.waitForDb.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoBackend.initContainers.waitForDb.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- tpl .Values.tfoBackend.initContainers.waitForDb.command $ | nindent 14 }}
+        {{- end }}
+        {{- if .Values.tfoBackend.initContainers.waitForRedis.enabled }}
+        - name: wait-for-redis
+          image: "{{ .Values.tfoBackend.initContainers.waitForRedis.image.repository }}:{{ .Values.tfoBackend.initContainers.waitForRedis.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoBackend.initContainers.waitForRedis.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- tpl .Values.tfoBackend.initContainers.waitForRedis.command $ | nindent 14 }}
+        {{- end }}
+        {{- if .Values.tfoBackend.initContainers.waitForClickHouse.enabled }}
+        - name: wait-for-clickhouse
+          image: "{{ .Values.tfoBackend.initContainers.waitForClickHouse.image.repository }}:{{ .Values.tfoBackend.initContainers.waitForClickHouse.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoBackend.initContainers.waitForClickHouse.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- tpl .Values.tfoBackend.initContainers.waitForClickHouse.command $ | nindent 14 }}
+        {{- end }}
+        {{- if .Values.tfoBackend.initContainers.waitForNats.enabled }}
+        - name: wait-for-nats
+          image: "{{ .Values.tfoBackend.initContainers.waitForNats.image.repository }}:{{ .Values.tfoBackend.initContainers.waitForNats.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoBackend.initContainers.waitForNats.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- tpl .Values.tfoBackend.initContainers.waitForNats.command $ | nindent 14 }}
+        {{- end }}
+        {{- if .Values.tfoBackend.initContainers.migrations.enabled }}
+        - name: migrations
+          image: "{{ .Values.tfoBackend.initContainers.migrations.image.repository }}:{{ .Values.tfoBackend.initContainers.migrations.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoBackend.initContainers.migrations.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- tpl .Values.tfoBackend.initContainers.migrations.command $ | nindent 14 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
+            {{- if .Values.secrets.create }}
+            - secretRef:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-secrets
+            {{- end }}
+        {{- end }}
+        {{- if .Values.tfoBackend.initContainers.seeds.enabled }}
+        - name: seeds
+          image: "{{ .Values.tfoBackend.initContainers.seeds.image.repository }}:{{ .Values.tfoBackend.initContainers.seeds.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoBackend.initContainers.seeds.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- tpl .Values.tfoBackend.initContainers.seeds.command $ | nindent 14 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
+            {{- if .Values.secrets.create }}
+            - secretRef:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-secrets
+            {{- end }}
+        {{- end }}
+      containers:
+        - name: tfo-backend
+          image: "{{ .Values.tfoBackend.image.repository }}:{{ .Values.tfoBackend.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.tfoBackend.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.tfoBackend.ports.http.containerPort }}
+              protocol: {{ .Values.tfoBackend.ports.http.protocol }}
+            - name: grpc
+              containerPort: {{ .Values.tfoBackend.ports.grpc.containerPort }}
+              protocol: {{ .Values.tfoBackend.ports.grpc.protocol }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
+            {{- if .Values.secrets.create }}
+            - secretRef:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-secrets
+            {{- end }}
+            {{- range .Values.tfoBackend.envFromSecrets }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          env:
+            {{- $root := $ }}
+            {{- range $key, $value := .Values.tfoBackend.env }}
+            {{- if not (or (contains "SECRET" $key) (contains "PASSWORD" $key) (contains "TOKEN" $key) (contains "KEY" $key)) }}
+            - name: {{ $key }}
+              value: {{ tpl (toString $value) $root | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.secrets.create }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
+                  key: SESSION_SECRET
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
+                  key: JWT_SECRET
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
+                  key: ENCRYPTION_KEY
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
+                  key: ADMIN_PASSWORD
+            - name: SUPER_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
+                  key: SUPER_ADMIN_PASSWORD
+            {{- end }}
+          {{- if .Values.tfoBackend.healthChecks.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.tfoBackend.healthChecks.liveness.httpGet.path }}
+              port: {{ .Values.tfoBackend.healthChecks.liveness.httpGet.port }}
+            initialDelaySeconds: {{ .Values.tfoBackend.healthChecks.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.tfoBackend.healthChecks.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.tfoBackend.healthChecks.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.tfoBackend.healthChecks.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.tfoBackend.healthChecks.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.tfoBackend.healthChecks.readiness.httpGet.path }}
+              port: {{ .Values.tfoBackend.healthChecks.readiness.httpGet.port }}
+            initialDelaySeconds: {{ .Values.tfoBackend.healthChecks.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.tfoBackend.healthChecks.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.tfoBackend.healthChecks.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.tfoBackend.healthChecks.readiness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.tfoBackend.healthChecks.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.tfoBackend.healthChecks.startup.httpGet.path }}
+              port: {{ .Values.tfoBackend.healthChecks.startup.httpGet.port }}
+            initialDelaySeconds: {{ .Values.tfoBackend.healthChecks.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.tfoBackend.healthChecks.startup.periodSeconds }}
+            failureThreshold: {{ .Values.tfoBackend.healthChecks.startup.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.tfoBackend.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /var/log/telemetryflow
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-backend
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-backend
+  {{- with .Values.tfoBackend.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.tfoBackend.service.type }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: 4317
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-backend
+{{- if .Values.tfoBackend.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-backend
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-backend
+  {{- with (merge .Values.tfoBackend.ingress.annotations .Values.global.ingress.annotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if or .Values.tfoBackend.ingress.className .Values.global.ingress.className }}
+  ingressClassName: {{ .Values.tfoBackend.ingress.className | default .Values.global.ingress.className }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.tfoBackend.ingress.host | default (printf "api.%s" .Values.global.domain) }}
+      http:
+        paths:
+          - path: {{ .Values.tfoBackend.ingress.path }}
+            pathType: {{ .Values.tfoBackend.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend
+                port:
+                  number: 8080
+  {{- if or .Values.tfoBackend.ingress.tls .Values.global.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.tfoBackend.ingress.host | default (printf "api.%s" .Values.global.domain) }}
+      secretName: {{ .Values.tfoBackend.ingress.tlsSecretName | default .Values.global.tls.secretName }}
+  {{- end }}
+{{- end }}
+{{- if and (hasKey .Values.tfoBackend "autoscaling") .Values.tfoBackend.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-backend
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "telemetryflow.fullname" . }}-tfo-backend
+  minReplicas: {{ .Values.tfoBackend.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.tfoBackend.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.tfoBackend.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.tfoBackend.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.tfoBackend.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.tfoBackend.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}
+{{- end }}

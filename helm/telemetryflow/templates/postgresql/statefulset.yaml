@@ -1,0 +1,163 @@
+{{- if .Values.postgresql.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-postgresql
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-postgresql-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-postgresql-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+data:
+  postgresql.conf: |
+    max_connections = {{ .Values.postgresql.env.POSTGRES_MAX_CONNECTIONS | default "100" }}
+    shared_buffers = {{ .Values.postgresql.env.POSTGRES_SHARED_BUFFERS | default "256MB" }}
+    effective_cache_size = 768MB
+    maintenance_work_mem = 64MB
+    checkpoint_completion_target = 0.9
+    wal_buffers = 16MB
+    default_statistics_target = 100
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    work_mem = 2621kB
+    min_wal_size = 1GB
+    max_wal_size = 4GB
+    log_destination = 'stderr'
+    logging_collector = off
+    log_statement = 'mod'
+    log_min_duration_statement = 1000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-postgresql
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  replicas: {{ .Values.postgresql.replicas }}
+  serviceName: {{ include "telemetryflow.fullname" . }}-postgresql-headless
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+      annotations:
+        checksum/postgresql-config: {{ toYaml .Values.postgresql.env | sha256sum }}
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgresql
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.env.POSTGRES_DB | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.env.POSTGRES_USER | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" . }}-db-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          volumeMounts:
+            - name: postgresql-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgresql-config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+          {{- if .Values.postgresql.healthChecks.liveness.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                {{- toYaml .Values.postgresql.healthChecks.liveness.exec.command | nindent 16 }}
+            initialDelaySeconds: {{ .Values.postgresql.healthChecks.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.postgresql.healthChecks.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.postgresql.healthChecks.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.postgresql.healthChecks.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.postgresql.healthChecks.readiness.enabled }}
+          readinessProbe:
+            exec:
+              command:
+                {{- toYaml .Values.postgresql.healthChecks.readiness.exec.command | nindent 16 }}
+            initialDelaySeconds: {{ .Values.postgresql.healthChecks.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.postgresql.healthChecks.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.postgresql.healthChecks.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.postgresql.healthChecks.readiness.failureThreshold }}
+          {{- end }}
+      volumes:
+        - name: postgresql-config
+          configMap:
+            name: {{ include "telemetryflow.fullname" . }}-postgresql-config
+  {{- if .Values.postgresql.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgresql-data
+        labels:
+          {{- include "telemetryflow.labels" . | nindent 10 }}
+          app.kubernetes.io/component: postgresql
+      spec:
+        accessModes:
+          - {{ .Values.postgresql.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if .Values.postgresql.persistence.storageClassName }}
+        storageClassName: {{ .Values.postgresql.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.persistence.size }}
+  {{- end }}
+{{- end }}

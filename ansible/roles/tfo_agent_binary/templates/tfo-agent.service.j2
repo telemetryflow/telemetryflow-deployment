@@ -1,0 +1,21 @@
+[Unit]
+Description=TelemetryFlow Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ tfo_agent_user }}
+Group={{ tfo_agent_group }}
+EnvironmentFile={{ tfo_agent_env_file }}
+ExecStart={{ tfo_agent_install_dir }}/tfo-agent --config {{ tfo_agent_config_file }}
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ tfo_agent_service_name }}
+
+[Install]
+WantedBy=multi-user.target

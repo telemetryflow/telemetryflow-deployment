@@ -1,0 +1,20 @@
+---
+tfo_postgres_image: "postgres:16-alpine"
+tfo_postgres_container_name: "telemetryflow_platform_postgres"
+tfo_postgres_restart_policy: "unless-stopped"
+tfo_postgres_log_max_size: "50m"
+tfo_postgres_log_max_file: "5"
+
+tfo_postgres_port: 5432
+tfo_postgres_db: "telemetryflow"
+tfo_postgres_user: "telemetryflow"
+tfo_postgres_password: "<CHANGE_ME>"
+tfo_postgres_container_ip: "172.152.152.10"
+
+tfo_postgres_data_dir: "{{ tfo_platform_install_dir }}/data/postgres"
+tfo_postgres_max_connections: 200
+tfo_postgres_shared_buffers: "256MB"
+tfo_postgres_effective_cache_size: "1GB"
+tfo_postgres_work_mem: "4MB"
+
+tfo_postgres_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.postgres.yml"

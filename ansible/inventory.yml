@@ -1,0 +1,38 @@
+---
+# TelemetryFlow Deployment Inventory
+# Update all placeholder IPs (10.x.x.x) and SSH user settings to match your environment.
+
+all:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+
+tfo_agents:
+  hosts:
+    agent-01:
+      ansible_host: 10.0.0.10
+      ansible_user: "<CHANGE_ME>"
+    agent-02:
+      ansible_host: 10.0.0.11
+      ansible_user: "<CHANGE_ME>"
+
+tfo_platform:
+  children:
+    tfo_node:
+      hosts:
+        platform-node:
+          ansible_host: 10.0.1.10
+          ansible_user: "<CHANGE_ME>"
+          tfo_platform_role: node
+    tfo_db:
+      hosts:
+        platform-db:
+          ansible_host: 10.0.1.20
+          ansible_user: "<CHANGE_ME>"
+          tfo_platform_role: db
+    tfo_clickhouse:
+      hosts:
+        platform-clickhouse:
+          ansible_host: 10.0.1.30
+          ansible_user: "<CHANGE_ME>"
+          tfo_platform_role: clickhouse

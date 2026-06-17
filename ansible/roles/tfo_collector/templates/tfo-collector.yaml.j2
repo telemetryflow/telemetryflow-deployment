@@ -1,0 +1,63 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:{{ tfo_collector_grpc_port }}
+      http:
+        endpoint: 0.0.0.0:{{ tfo_collector_http_port }}
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  resource:
+    attributes:
+      - key: environment
+        value: {{ environment }}
+        action: upsert
+      - key: region
+        value: {{ region }}
+        action: upsert
+      - key: cluster
+        value: {{ cluster }}
+        action: upsert
+      - key: datacenter
+        value: {{ datacenter }}
+        action: upsert
+      - key: provider
+        value: {{ provider }}
+        action: upsert
+
+exporters:
+  debug:
+    verbosity: basic
+  otlphttp:
+    endpoint: "http://{{ tfo_backend_container_ip }}:{{ tfo_backend_port }}/api/otlp"
+    headers:
+      x-tfo-api-key-id: "{{ tfo_api_key_id }}"
+      x-tfo-api-key-secret: "{{ tfo_api_key_secret }}"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp]
+  extensions: [health_check]
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:{{ tfo_collector_health_check_port }}

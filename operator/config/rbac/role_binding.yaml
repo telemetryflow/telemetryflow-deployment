@@ -1,0 +1,15 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: telemetryflow-operator-rolebinding
+  labels:
+    app.kubernetes.io/name: telemetryflow-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: telemetryflow-operator-role
+subjects:
+  - kind: ServiceAccount
+    name: telemetryflow-operator-controller-manager
+    namespace: telemetryflow-system

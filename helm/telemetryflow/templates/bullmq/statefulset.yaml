@@ -1,0 +1,13 @@
+{{- if and .Values.bullmq.enabled .Values.redisMaster.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-bullmq
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bullmq
+spec:
+  type: ExternalName
+  externalName: {{ include "telemetryflow.fullname" . }}-redis-master.{{ include "telemetryflow.namespace" . }}.svc.cluster.local
+{{- end }}

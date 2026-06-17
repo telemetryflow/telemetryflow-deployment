@@ -1,0 +1,15 @@
+---
+tfo_collector_image: "otel/opentelemetry-collector-contrib:latest"
+tfo_collector_container_name: "telemetryflow_platform_collector"
+tfo_collector_restart_policy: "unless-stopped"
+tfo_collector_log_max_size: "50m"
+tfo_collector_log_max_file: "5"
+
+tfo_collector_grpc_port: 4317
+tfo_collector_http_port: 4318
+tfo_collector_health_check_port: 13133
+tfo_collector_container_ip: "172.152.152.60"
+
+tfo_collector_config_file: "{{ tfo_platform_config_dir }}/tfo-collector.yaml"
+tfo_collector_env_file: "{{ tfo_platform_config_dir }}/collector.env"
+tfo_collector_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.collector.yml"

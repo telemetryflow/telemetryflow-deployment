@@ -1,0 +1,5 @@
+---
+- name: Cleanup platform
+  hosts: tfo_platform
+  roles:
+    - role: cleanup_platform

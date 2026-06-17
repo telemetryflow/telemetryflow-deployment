@@ -1,0 +1,66 @@
+---
+- name: Ensure platform network exists
+  community.docker.docker_network:
+    name: "{{ tfo_platform_network_name }}"
+    driver_options:
+      com.docker.network.bridge.enable_icc: "true"
+    ipam_config:
+      subnet: "{{ tfo_platform_network_subnet }}"
+      gateway: "{{ tfo_platform_network_gateway }}"
+  tags: [network]
+
+- name: Create collector directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_platform_config_dir }}"
+
+- name: Deploy collector configuration
+  ansible.builtin.template:
+    src: tfo-collector.yaml.j2
+    dest: "{{ tfo_collector_config_file }}"
+    mode: "0644"
+  notify: restart tfo collector
+
+- name: Deploy collector environment file
+  ansible.builtin.template:
+    src: collector.env.j2
+    dest: "{{ tfo_collector_env_file }}"
+    mode: "0600"
+  notify: restart tfo collector
+
+- name: Deploy collector docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_collector_compose_file }}"
+    mode: "0644"
+  notify: restart tfo collector
+
+- name: Pull collector image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_collector_image }}"
+    image: "{{ tfo_collector_image }}"
+  tags: [pull]
+
+- name: Start collector
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.collector.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]
+
+- name: Wait for collector health check
+  ansible.builtin.uri:
+    url: "http://{{ tfo_collector_container_ip }}:{{ tfo_collector_health_check_port }}/health"
+    method: GET
+    status_code: 200
+  register: _collector_health
+  until: _collector_health.status == 200
+  retries: 15
+  delay: 2
+  tags: [healthcheck]

@@ -1,0 +1,15 @@
+---
+tfo_viz_image: "telemetryflow/viz:{{ tfo_viz_version | default('latest') }}"
+tfo_viz_container_name: "telemetryflow_platform_viz"
+tfo_viz_restart_policy: "unless-stopped"
+tfo_viz_log_max_size: "50m"
+tfo_viz_log_max_file: "5"
+
+tfo_viz_http_port: 80
+tfo_viz_https_port: 443
+tfo_viz_container_ip: "172.152.152.70"
+
+tfo_viz_backend_upstream: "{{ tfo_backend_container_ip }}:{{ tfo_backend_port }}"
+tfo_viz_server_name: "_"
+
+tfo_viz_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.viz.yml"

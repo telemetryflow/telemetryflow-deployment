@@ -1,0 +1,10 @@
+---
+- name: Restart tfo viz
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.viz.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+    recreate: always
+  listen: restart tfo viz

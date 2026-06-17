@@ -1,0 +1,385 @@
+# =============================================================================
+# TelemetryFlow Platform - Docker Compose Configuration
+# =============================================================================
+#
+# PROFILES:
+#   core        - Infrastructure services (Postgres, ClickHouse, Redis, NATS)
+#                 plus backend and frontend
+#   monitoring  - OpenTelemetry Collector, TFO-Agent
+#   tools       - Portainer management UI
+#   all         - Everything: core + monitoring + tools
+#   all-in      - Core with OTEL-instrumented backend/frontend variants
+#
+# USAGE EXAMPLES:
+#   # Start core platform only (dev default):
+#   docker compose --profile core up -d
+#
+#   # Start with monitoring stack:
+#   docker compose --profile core --profile monitoring up -d
+#
+#   # Start everything:
+#   docker compose --profile all up -d
+#
+#   # Start all-in-one with built-in OTEL instrumentation:
+#   docker compose --profile all-in --profile monitoring --profile tools up -d
+#
+# QUICK START:
+#   1. Copy .env.example to .env:
+#      cp .env.example .env
+#   2. Generate secrets:
+#      sed -i '' 's/^JWT_SECRET=$/JWT_SECRET='$(openssl rand -hex 32)'/' .env
+#      sed -i '' 's/^SESSION_SECRET=$/SESSION_SECRET='$(openssl rand -hex 32)'/' .env
+#   3. Start the platform:
+#      docker compose --profile core up -d
+#   4. Access:
+#      Frontend  -> http://localhost:${FRONTEND_PORT:-8080}
+#      Backend   -> http://localhost:${BACKEND_PORT:-3000}
+#      Portainer -> http://localhost:${PORTAINER_PORT:-9000} (tools profile)
+#
+# =============================================================================
+
+networks:
+  telemetryflow_platform_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.151.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  redis_data:
+    driver: local
+  nats_data:
+    driver: local
+  portainer_data:
+    driver: local
+  backend_logs:
+    driver: local
+
+services:
+
+  # ===========================================================================
+  # INFRASTRUCTURE SERVICES (profiles: core, all)
+  # ===========================================================================
+
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    profiles: ["core", "all"]
+    container_name: ${POSTGRES_CONTAINER_NAME:-telemetryflow-postgres}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-telemetryflow}
+      POSTGRES_USER: ${POSTGRES_USER:-telemetryflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ${VOLUMES_BASE_PATH:-./volumes}/postgres/data:/var/lib/postgresql/data
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${POSTGRES_IP:-172.151.151.20}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-telemetryflow} -d ${POSTGRES_DB:-telemetryflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-latest}
+    profiles: ["core", "all"]
+    container_name: ${CLICKHOUSE_CONTAINER_NAME:-telemetryflow-clickhouse}
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-telemetryflow}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_TCP_PORT:-9000}:9000"
+    volumes:
+      - ${VOLUMES_BASE_PATH:-./volumes}/clickhouse/data:/var/lib/clickhouse
+      - ${VOLUMES_BASE_PATH:-./volumes}/clickhouse/logs:/var/log/clickhouse-server
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${CLICKHOUSE_IP:-172.151.151.40}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --tries 1 http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  redis:
+    image: redis:${REDIS_VERSION:-7-alpine}
+    profiles: ["core", "all"]
+    container_name: ${REDIS_CONTAINER_NAME:-telemetryflow-redis}
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-}
+      --maxmemory ${REDIS_MAXMEMORY:-256mb}
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ${VOLUMES_BASE_PATH:-./volumes}/redis/data:/data
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${REDIS_IP:-172.151.151.50}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  nats:
+    image: nats:${NATS_VERSION:-2-alpine}
+    profiles: ["core", "all"]
+    container_name: ${NATS_CONTAINER_NAME:-telemetryflow-nats}
+    restart: unless-stopped
+    command: >
+      -js
+      --store_dir /data
+      --cluster_name ${NATS_CLUSTER_NAME:-telemetryflow-cluster}
+      --max_mem_store ${NATS_MAX_MEM_STORE:-256MB}
+      --max_file_store ${NATS_MAX_FILE_STORE:-1GB}
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MANAGEMENT_PORT:-8222}:8222"
+    volumes:
+      - ${VOLUMES_BASE_PATH:-./volumes}/nats/data:/data
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${NATS_IP:-172.151.151.55}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --tries 1 http://localhost:8222/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ===========================================================================
+  # APPLICATION SERVICES (profiles: core, all-in)
+  # ===========================================================================
+
+  backend:
+    image: ${BACKEND_IMAGE:-telemetryflow/telemetryflow-platform}:${BACKEND_VERSION:-latest}
+    profiles: ["core"]
+    container_name: ${BACKEND_CONTAINER_NAME:-telemetryflow-backend}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      POSTGRES_HOST: ${POSTGRES_IP:-172.151.151.20}
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-telemetryflow}
+      POSTGRES_USER: ${POSTGRES_USER:-telemetryflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      CLICKHOUSE_HOST: ${CLICKHOUSE_IP:-172.151.151.40}
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-telemetryflow}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      REDIS_HOST: ${REDIS_IP:-172.151.151.50}
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      NATS_URL: nats://${NATS_IP:-172.151.151.55}:4222
+      JWT_SECRET: ${JWT_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:-}
+      API_KEY: ${API_KEY:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:${FRONTEND_PORT:-8080}}
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - ${VOLUMES_BASE_PATH:-./volumes}/backend/logs:/app/logs
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${BACKEND_IP:-172.151.151.10}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  backend-with-monitoring:
+    image: ${BACKEND_IMAGE:-telemetryflow/telemetryflow-platform}:${BACKEND_VERSION:-latest}
+    profiles: ["all-in"]
+    container_name: ${BACKEND_CONTAINER_NAME:-telemetryflow-backend}-monitored
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-telemetryflow-backend}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://${TFO_COLLECTOR_IP:-172.151.151.30}:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      POSTGRES_HOST: ${POSTGRES_IP:-172.151.151.20}
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-telemetryflow}
+      POSTGRES_USER: ${POSTGRES_USER:-telemetryflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      CLICKHOUSE_HOST: ${CLICKHOUSE_IP:-172.151.151.40}
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-telemetryflow}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      REDIS_HOST: ${REDIS_IP:-172.151.151.50}
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      NATS_URL: nats://${NATS_IP:-172.151.151.55}:4222
+      JWT_SECRET: ${JWT_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:-}
+      API_KEY: ${API_KEY:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:${FRONTEND_PORT:-8080}}
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - ${VOLUMES_BASE_PATH:-./volumes}/backend/logs:/app/logs
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${BACKEND_IP:-172.151.151.10}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      tfo-collector:
+        condition: service_started
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-telemetryflow/telemetryflow-viz}:${FRONTEND_VERSION:-latest}
+    profiles: ["core"]
+    container_name: ${FRONTEND_CONTAINER_NAME:-telemetryflow-frontend}
+    restart: unless-stopped
+    environment:
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-TelemetryFlow}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:${BACKEND_PORT:-3000}}
+      VITE_API_KEY: ${VITE_API_KEY:-}
+      VITE_MOCK_DATA_ENABLED: ${VITE_MOCK_DATA_ENABLED:-false}
+      VITE_REFRESH_INTERVAL_MS: ${VITE_REFRESH_INTERVAL_MS:-30000}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${FRONTEND_IP:-172.151.151.15}
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend-with-monitoring:
+    image: ${FRONTEND_IMAGE:-telemetryflow/telemetryflow-viz}:${FRONTEND_VERSION:-latest}
+    profiles: ["all-in"]
+    container_name: ${FRONTEND_CONTAINER_NAME:-telemetryflow-frontend}-monitored
+    restart: unless-stopped
+    environment:
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-TelemetryFlow}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:${BACKEND_PORT:-3000}}
+      VITE_API_KEY: ${VITE_API_KEY:-}
+      VITE_MOCK_DATA_ENABLED: ${VITE_MOCK_DATA_ENABLED:-false}
+      VITE_REFRESH_INTERVAL_MS: ${VITE_REFRESH_INTERVAL_MS:-30000}
+      VITE_OTEL_ENABLED: "true"
+      VITE_OTEL_SERVICE_NAME: ${VITE_OTEL_SERVICE_NAME:-telemetryflow-frontend}
+      VITE_OTEL_COLLECTOR_URL: http://${TFO_COLLECTOR_IP:-172.151.151.30}:4318/v1/traces
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${FRONTEND_IP:-172.151.151.15}
+    depends_on:
+      backend-with-monitoring:
+        condition: service_started
+
+  # ===========================================================================
+  # MONITORING SERVICES (profiles: monitoring, all)
+  # ===========================================================================
+
+  tfo-collector:
+    image: telemetryflow/telemetryflow-collector:${TFO_COLLECTOR_VERSION:-1.2.1}
+    profiles: ["monitoring", "all", "all-in"]
+    container_name: ${TFO_COLLECTOR_CONTAINER_NAME:-telemetryflow-collector}
+    restart: unless-stopped
+    environment:
+      COLLECTOR_CONFIG: ${COLLECTOR_CONFIG:-/etc/otelcol/config.yaml}
+      CLICKHOUSE_HOST: ${CLICKHOUSE_IP:-172.151.151.40}
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-telemetryflow}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+      - "${OTEL_METRICS_PORT:-8889}:8889"
+      - "${OTEL_HEALTH_PORT:-13133}:13133"
+    volumes:
+      - ${VOLUMES_BASE_PATH:-./volumes}/collector/config:/etc/otelcol
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${TFO_COLLECTOR_IP:-172.151.151.30}
+
+  tfo-agent:
+    image: telemetryflow/telemetryflow-agent:${TFO_AGENT_VERSION:-1.2.1}
+    profiles: ["monitoring", "all"]
+    container_name: ${TFO_AGENT_CONTAINER_NAME:-telemetryflow-agent}
+    restart: unless-stopped
+    environment:
+      TFO_AGENT_VERSION: ${TFO_AGENT_VERSION:-1.2.0}
+      TFO_COLLECTOR_URL: http://${TFO_COLLECTOR_IP:-172.151.151.30}:4317
+      TFO_AGENT_SCRAPE_INTERVAL: ${TFO_AGENT_SCRAPE_INTERVAL:-15s}
+      TFO_AGENT_LOG_LEVEL: ${TFO_AGENT_LOG_LEVEL:-info}
+      HOST_PROC: /host/proc
+      HOST_SYS: /host/sys
+    ports:
+      - "${TFO_AGENT_PORT:-2025}:2025"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/log:/var/log:ro
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${TFO_AGENT_IP:-172.151.151.35}
+
+  # ===========================================================================
+  # TOOLS (profiles: tools, all)
+  # ===========================================================================
+
+  portainer:
+    image: portainer/portainer-ce:${PORTAINER_VERSION:-latest}
+    profiles: ["tools", "all"]
+    container_name: ${PORTAINER_CONTAINER_NAME:-telemetryflow-portainer}
+    restart: unless-stopped
+    command: --no-auth
+    ports:
+      - "${PORTAINER_PORT:-9000}:9000"
+      - "${PORTAINER_TUNNEL_PORT:-9443}:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${VOLUMES_BASE_PATH:-./volumes}/portainer/data:/data
+    networks:
+      telemetryflow_platform_net:
+        ipv4_address: ${PORTAINER_IP:-172.151.151.5}

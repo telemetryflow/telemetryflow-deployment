@@ -1,0 +1,13 @@
+---
+- name: Install network and diagnostic tools (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: "{{ net_tools_packages_debian }}"
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: Install network and diagnostic tools (RHEL/CentOS/Rocky/Alma)
+  ansible.builtin.dnf:
+    name: "{{ net_tools_packages_rhel }}"
+    state: present
+  when: ansible_os_family == "RedHat"

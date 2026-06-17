@@ -1,0 +1,219 @@
+{{- if .Values.tfoCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-collector-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-collector
+data:
+  config.yaml: |
+    receivers:
+      {{- toYaml .Values.tfoCollector.config.receivers | nindent 6 }}
+    processors:
+      {{- toYaml .Values.tfoCollector.config.processors | nindent 6 }}
+    exporters:
+      {{- toYaml .Values.tfoCollector.config.exporters | nindent 6 }}
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    service:
+      extensions: [health_check]
+      pipelines:
+        {{- toYaml .Values.tfoCollector.config.service.pipelines | nindent 8 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-collector
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-collector
+  {{- with .Values.global.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  serviceName: {{ include "telemetryflow.fullname" . }}-tfo-collector
+  replicas: {{ .Values.tfoCollector.replicas }}
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: tfo-collector
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: tfo-collector
+      annotations:
+        checksum/config: {{ toJson .Values.tfoCollector.config | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoCollector.serviceAccount "component" "tfo-collector" "context" $) }}
+      securityContext:
+        runAsNonRoot: {{ .Values.tfoCollector.securityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.tfoCollector.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.tfoCollector.securityContext.runAsGroup }}
+        readOnlyRootFilesystem: {{ .Values.tfoCollector.securityContext.readOnlyRootFilesystem }}
+      containers:
+        - name: tfo-collector
+          image: "{{ .Values.tfoCollector.image.repository }}:{{ .Values.tfoCollector.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.tfoCollector.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          ports:
+            {{- if .Values.tfoCollector.ports.otlp.enabled }}
+            - name: otlp
+              containerPort: {{ .Values.tfoCollector.ports.otlp.containerPort }}
+              protocol: {{ .Values.tfoCollector.ports.otlp.protocol }}
+            {{- end }}
+            {{- if .Values.tfoCollector.ports.otlpHttp.enabled }}
+            - name: otlp-http
+              containerPort: {{ .Values.tfoCollector.ports.otlpHttp.containerPort }}
+              protocol: {{ .Values.tfoCollector.ports.otlpHttp.protocol }}
+            {{- end }}
+            {{- if .Values.tfoCollector.ports.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.tfoCollector.ports.metrics.containerPort }}
+              protocol: {{ .Values.tfoCollector.ports.metrics.protocol }}
+            {{- end }}
+            {{- if .Values.tfoCollector.ports.healthCheck.enabled }}
+            - name: health-check
+              containerPort: {{ .Values.tfoCollector.ports.healthCheck.containerPort }}
+              protocol: {{ .Values.tfoCollector.ports.healthCheck.protocol }}
+            {{- end }}
+            {{- if .Values.tfoCollector.ports.pprof.enabled }}
+            - name: pprof
+              containerPort: {{ .Values.tfoCollector.ports.pprof.containerPort }}
+              protocol: {{ .Values.tfoCollector.ports.pprof.protocol }}
+            {{- end }}
+            {{- if .Values.tfoCollector.ports.zpages.enabled }}
+            - name: zpages
+              containerPort: {{ .Values.tfoCollector.ports.zpages.containerPort }}
+              protocol: {{ .Values.tfoCollector.ports.zpages.protocol }}
+            {{- end }}
+          env:
+            - name: TELEMETRYFLOW_API_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" . }}-agent-secrets
+                  key: API_KEY_ID
+            - name: TELEMETRYFLOW_API_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "telemetryflow.fullname" . }}-agent-secrets
+                  key: API_KEY
+          {{- range .Values.tfoCollector.envFromSecrets }}
+            - name: {{ .envName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: {{ .key }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health-check
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health-check
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.tfoCollector.resources | nindent 12 }}
+          volumeMounts:
+            - name: collector-config
+              mountPath: /etc/otelcol/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.tfoCollector.persistence.enabled }}
+            - name: persistence
+              mountPath: /var/lib/otelcol
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: collector-config
+          configMap:
+            name: {{ include "telemetryflow.fullname" . }}-tfo-collector-config
+        - name: tmp
+          emptyDir: {}
+  {{- if .Values.tfoCollector.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: persistence
+        labels:
+          {{- include "telemetryflow.labels" . | nindent 10 }}
+          app.kubernetes.io/component: tfo-collector
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.tfoCollector.persistence.storageClassName }}
+        storageClassName: {{ .Values.tfoCollector.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.tfoCollector.persistence.size }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-collector
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-collector
+  {{- with .Values.tfoCollector.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.tfoCollector.service.type }}
+  ports:
+    {{- if .Values.tfoCollector.ports.otlp.enabled }}
+    - name: otlp
+      port: {{ .Values.tfoCollector.ports.otlp.containerPort }}
+      targetPort: otlp
+      protocol: {{ .Values.tfoCollector.ports.otlp.protocol }}
+    {{- end }}
+    {{- if .Values.tfoCollector.ports.otlpHttp.enabled }}
+    - name: otlp-http
+      port: {{ .Values.tfoCollector.ports.otlpHttp.containerPort }}
+      targetPort: otlp-http
+      protocol: {{ .Values.tfoCollector.ports.otlpHttp.protocol }}
+    {{- end }}
+    {{- if .Values.tfoCollector.ports.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.tfoCollector.ports.metrics.containerPort }}
+      targetPort: metrics
+      protocol: {{ .Values.tfoCollector.ports.metrics.protocol }}
+    {{- end }}
+    {{- if .Values.tfoCollector.ports.healthCheck.enabled }}
+    - name: health-check
+      port: {{ .Values.tfoCollector.ports.healthCheck.containerPort }}
+      targetPort: health-check
+      protocol: {{ .Values.tfoCollector.ports.healthCheck.protocol }}
+    {{- end }}
+    {{- if .Values.tfoCollector.ports.pprof.enabled }}
+    - name: pprof
+      port: {{ .Values.tfoCollector.ports.pprof.containerPort }}
+      targetPort: pprof
+      protocol: {{ .Values.tfoCollector.ports.pprof.protocol }}
+    {{- end }}
+    {{- if .Values.tfoCollector.ports.zpages.enabled }}
+    - name: zpages
+      port: {{ .Values.tfoCollector.ports.zpages.containerPort }}
+      targetPort: zpages
+      protocol: {{ .Values.tfoCollector.ports.zpages.protocol }}
+    {{- end }}
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-collector
+{{- end }}

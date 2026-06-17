@@ -1,0 +1,296 @@
+stages:
+  - validate
+  - test
+  - security
+  - build
+  - deploy-staging
+  - deploy-production
+
+variables:
+  HELM_VERSION: v3.14.0
+  GO_VERSION: "1.26"
+  KUBECTL_VERSION: v1.31.0
+  HELM_CHART: helm/telemetryflow
+  RELEASE_NAME: telemetryflow
+  NAMESPACE: telemetryflow
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - operator/bin/
+    - .cache/go-mod/
+
+.helm-setup: &helm-setup |
+  curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz
+  mv linux-amd64/helm /usr/local/bin/helm
+  rm -rf linux-amd64
+
+.kubectl-setup: &kubectl-setup |
+  curl -sSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+  chmod +x /usr/local/bin/kubectl
+
+helm-lint:
+  stage: validate
+  image: alpine/helm:3.14
+  script:
+    - helm lint ${HELM_CHART} --strict
+    - helm template telemetryflow ${HELM_CHART} --namespace ${NAMESPACE} -f ${HELM_CHART}/values.yaml -f ${HELM_CHART}/manifest/tfo-staging.yaml --debug > /dev/null
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+    - if: $CI_COMMIT_TAG =~ /^v/
+
+ansible-lint:
+  stage: validate
+  image: registry.gitlab.com/pipeline-components/ansible-lint:latest
+  script:
+    - ansible-lint ansible/
+    - ansible-lint ansible-k8s/
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+    - changes:
+        - ansible/**/*
+        - ansible-k8s/**/*
+
+go-test:
+  stage: test
+  image: golang:${GO_VERSION}
+  cache:
+    key: go-mod-${CI_COMMIT_REF_SLUG}
+    paths:
+      - operator/bin/
+    policy: pull-push
+  before_script:
+    - cd operator
+  script:
+    - go vet ./...
+    - make test
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+    - changes:
+        - operator/**/*
+
+validate-compose:
+  stage: validate
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker compose -f docker-compose.yml config --quiet
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+
+security-scan:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script:
+    - gitleaks detect --source . --verbose --redact
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+
+helm-package:
+  stage: build
+  image: alpine/helm:3.14
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - helm package ${HELM_CHART} --app-version "${VERSION}" --version "${VERSION}" --destination ./dist
+    - helm push ./dist/telemetryflow-*.tgz oci://${CI_REGISTRY_IMAGE}/charts
+  needs: []
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  artifacts:
+    paths:
+      - dist/
+
+operator-build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - echo "${CI_REGISTRY_PASSWORD}" | docker login -u "${CI_REGISTRY_USER}" --password-stdin "${CI_REGISTRY}"
+  script:
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --tag "${CI_REGISTRY_IMAGE}/telemetryflow-operator:${CI_COMMIT_TAG}" \
+        --tag "${CI_REGISTRY_IMAGE}/telemetryflow-operator:latest" \
+        --push \
+        ./operator
+  needs: []
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+
+deploy-staging:
+  stage: deploy-staging
+  image: alpine:3.19
+  before_script:
+    - *helm-setup
+    - *kubectl-setup
+    - apk add --no-cache bash curl
+  script:
+    - mkdir -p "$HOME/.kube"
+    - echo "${KUBE_CONFIG_STAGING}" | base64 -d > "$HOME/.kube/config"
+    - chmod 600 "$HOME/.kube/config"
+    - bash scripts/install-crds.sh
+    - |
+      helm upgrade "${RELEASE_NAME}" "${HELM_CHART}" \
+        --install \
+        --namespace "${NAMESPACE}" \
+        --create-namespace \
+        -f ${HELM_CHART}/values.yaml \
+        -f ${HELM_CHART}/manifest/tfo-staging.yaml \
+        --timeout 5m \
+        --wait \
+        --history-max 10
+    - kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE_NAME}"
+  environment:
+    name: staging
+    url: https://staging.telemetryflow.example.com
+  variables:
+    KUBE_CONFIG_STAGING: $KUBE_CONFIG_STAGING
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  needs:
+    - helm-lint
+    - go-test
+
+deploy-production:
+  stage: deploy-production
+  image: alpine:3.19
+  before_script:
+    - *helm-setup
+    - *kubectl-setup
+    - apk add --no-cache bash curl
+  script:
+    - mkdir -p "$HOME/.kube"
+    - echo "${KUBE_CONFIG_PRODUCTION}" | base64 -d > "$HOME/.kube/config"
+    - chmod 600 "$HOME/.kube/config"
+    - |
+      REQUIRED_SECRETS="JWT_SECRET SESSION_SECRET ENCRYPTION_KEY POSTGRES_PASSWORD CLICKHOUSE_PASSWORD REDIS_PASSWORD"
+      MISSING=0
+      for secret in $REQUIRED_SECRETS; do
+        if ! kubectl get secret telemetryflow-secrets -n "${NAMESPACE}" -o jsonpath="{.data.$secret}" >/dev/null 2>&1; then
+          echo "WARNING: Secret '$secret' not found in telemetryflow-secrets"
+          MISSING=1
+        fi
+      done
+      if [ "$MISSING" -eq 1 ]; then
+        echo "ERROR: Required secrets are missing. Run scripts/generate-secrets.sh first."
+        exit 1
+      fi
+    - bash scripts/install-crds.sh
+    - |
+      helm upgrade "${RELEASE_NAME}" "${HELM_CHART}" \
+        --install \
+        --namespace "${NAMESPACE}" \
+        --create-namespace \
+        -f ${HELM_CHART}/values.yaml \
+        -f ${HELM_CHART}/manifest/tfo-production.yaml \
+        --timeout 10m \
+        --wait \
+        --history-max 5
+    - kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE_NAME}"
+    - kubectl get hpa -n "${NAMESPACE}" || echo "No HPA resources found"
+  environment:
+    name: production
+    url: https://telemetryflow.example.com
+  variables:
+    KUBE_CONFIG_PRODUCTION: $KUBE_CONFIG_PRODUCTION
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  needs:
+    - helm-lint
+    - go-test
+
+deploy-eks-staging:
+  stage: deploy-staging
+  image: alpine:3.19
+  before_script:
+    - *helm-setup
+    - *kubectl-setup
+    - apk add --no-cache bash curl python3 py3-pip
+    - pip install awscli
+  script:
+    - aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"
+    - bash scripts/install-crds.sh
+    - |
+      helm upgrade "${RELEASE_NAME}" "${HELM_CHART}" \
+        --install \
+        --namespace "${NAMESPACE}" \
+        --create-namespace \
+        -f ${HELM_CHART}/values.yaml \
+        -f ${HELM_CHART}/manifest/tfo-eks-staging.yaml \
+        --timeout 5m \
+        --wait \
+        --history-max 10
+    - kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE_NAME}"
+  environment:
+    name: eks-staging
+  variables:
+    AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+    AWS_REGION: $AWS_REGION
+    EKS_CLUSTER_NAME: $EKS_CLUSTER_NAME
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+  needs:
+    - helm-lint
+    - go-test
+
+deploy-eks-production:
+  stage: deploy-production
+  image: alpine:3.19
+  before_script:
+    - *helm-setup
+    - *kubectl-setup
+    - apk add --no-cache bash curl python3 py3-pip
+    - pip install awscli
+  script:
+    - aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"
+    - |
+      REQUIRED_SECRETS="JWT_SECRET SESSION_SECRET ENCRYPTION_KEY POSTGRES_PASSWORD CLICKHOUSE_PASSWORD REDIS_PASSWORD"
+      MISSING=0
+      for secret in $REQUIRED_SECRETS; do
+        if ! kubectl get secret telemetryflow-secrets -n "${NAMESPACE}" -o jsonpath="{.data.$secret}" >/dev/null 2>&1; then
+          echo "WARNING: Secret '$secret' not found in telemetryflow-secrets"
+          MISSING=1
+        fi
+      done
+      if [ "$MISSING" -eq 1 ]; then
+        echo "ERROR: Required secrets are missing. Run scripts/generate-secrets.sh first."
+        exit 1
+      fi
+    - bash scripts/install-crds.sh
+    - |
+      helm upgrade "${RELEASE_NAME}" "${HELM_CHART}" \
+        --install \
+        --namespace "${NAMESPACE}" \
+        --create-namespace \
+        -f ${HELM_CHART}/values.yaml \
+        -f ${HELM_CHART}/manifest/tfo-eks-production.yaml \
+        --timeout 10m \
+        --wait \
+        --history-max 5
+    - kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/instance="${RELEASE_NAME}"
+    - kubectl get hpa -n "${NAMESPACE}" || echo "No HPA resources found"
+  environment:
+    name: eks-production
+  variables:
+    AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+    AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+    AWS_REGION: $AWS_REGION
+    EKS_CLUSTER_NAME: $EKS_CLUSTER_NAME
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  needs:
+    - helm-lint
+    - go-test

@@ -1,0 +1,148 @@
+{{/*
+ServiceAccount, ClusterRole, and ClusterRoleBinding for tfo-agent
+*/}}
+{{- if and .Values.tfoAgent.enabled .Values.tfoAgent.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoAgent.serviceAccount "component" "agent" "context" $) }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+---
+{{- if .Values.tfoAgent.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-tfo-agent
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+rules:
+  {{- toYaml .Values.tfoAgent.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-tfo-agent
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-tfo-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoAgent.serviceAccount "component" "agent" "context" $) }}
+    namespace: {{ include "telemetryflow.namespace" . }}
+{{- end }}
+---
+{{- end }}
+
+{{/*
+ServiceAccount, ClusterRole, and ClusterRoleBinding for tfo-collector
+*/}}
+{{- if and .Values.tfoCollector.enabled .Values.tfoCollector.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoCollector.serviceAccount "component" "collector" "context" $) }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+---
+{{- if .Values.tfoCollector.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-tfo-collector
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+rules:
+  {{- toYaml .Values.tfoCollector.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-tfo-collector
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-tfo-collector
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoCollector.serviceAccount "component" "collector" "context" $) }}
+    namespace: {{ include "telemetryflow.namespace" . }}
+{{- end }}
+---
+{{- end }}
+
+{{/*
+ServiceAccount, ClusterRole, and ClusterRoleBinding for tfo-backend
+*/}}
+{{- if and .Values.tfoBackend.enabled .Values.tfoBackend.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoBackend.serviceAccount "component" "backend" "context" $) }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+{{- if .Values.tfoBackend.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-tfo-backend
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+rules:
+  {{- if .Values.tfoBackend.rbac.rules }}
+  {{- toYaml .Values.tfoBackend.rbac.rules | nindent 2 }}
+  {{- else }}
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "endpoints", "services"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-tfo-backend
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-tfo-backend
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoBackend.serviceAccount "component" "backend" "context" $) }}
+    namespace: {{ include "telemetryflow.namespace" . }}
+{{- end }}
+---
+{{- end }}
+
+{{/*
+ServiceAccount for tfo-viz
+*/}}
+{{- if and .Values.tfoViz.enabled .Values.tfoViz.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoViz.serviceAccount "component" "viz" "context" $) }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: viz
+{{- end }}

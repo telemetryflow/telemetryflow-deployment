@@ -1,0 +1,31 @@
+---
+- name: Create portainer directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_portainer_data_dir }}"
+
+- name: Deploy portainer docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_portainer_compose_file }}"
+    mode: "0644"
+  notify: restart tfo portainer
+
+- name: Pull portainer image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_portainer_image }}"
+    image: "{{ tfo_portainer_image }}"
+  tags: [pull]
+
+- name: Start portainer
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.portainer.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]

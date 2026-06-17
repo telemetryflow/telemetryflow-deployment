@@ -1,0 +1,5 @@
+---
+- name: Deploy PostgreSQL
+  hosts: tfo_db
+  roles:
+    - role: tfo_postgres

@@ -1,0 +1,54 @@
+# Ansible
+ansible/*.retry
+ansible/.ansible/
+ansible/roles/*/files/secrets*
+ansible-k8s/.ansible/
+ansible-k8s/*.retry
+ansible-k8s/roles/*/files/secrets*
+ansible-k8s/kubeconfig
+ansible-k8s/values/
+
+# Helm
+helm/**/charts/
+helm/**/Chart.lock
+helm/**/*.tgz
+
+# Operator
+operator/bin/
+operator/testbin/
+operator/__debug_bin*
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+*secret*
+*credential*
+*.key
+*.pem
+*.p12
+.env
+.env.*
+*.log

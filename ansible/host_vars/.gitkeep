@@ -1,0 +1,3 @@
+# Place host-specific variable files here.
+# Each file should be named <hostname>.yml (e.g., platform-node.yml).
+# Variables here override group_vars for the specific host.

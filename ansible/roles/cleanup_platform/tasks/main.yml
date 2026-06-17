@@ -1,0 +1,27 @@
+---
+- name: Stop all platform compose services
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: absent
+  failed_when: false
+
+- name: Remove platform containers
+  community.docker.docker_container:
+    name: "{{ item }}"
+    state: absent
+    force_kill: true
+  loop: "{{ cleanup_containers }}"
+  failed_when: false
+
+- name: Remove platform network
+  community.docker.docker_network:
+    name: "{{ tfo_platform_network_name | default('telemetryflow_platform_net') }}"
+    state: absent
+  failed_when: false
+
+- name: Remove platform directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ cleanup_dirs }}"

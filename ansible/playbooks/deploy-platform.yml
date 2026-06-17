@@ -1,0 +1,5 @@
+---
+- name: Deploy platform
+  hosts: tfo_platform
+  roles:
+    - role: tfo_platform

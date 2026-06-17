@@ -1,0 +1,10 @@
+---
+# agent-02 — TelemetryFlow Agent Host
+# Update ansible_host, ansible_user, ansible_password, and private_ip for your environment.
+ansible_host: 10.0.0.11
+ansible_user: "<CHANGE_ME>"
+ansible_password: "<CHANGE_ME>"
+ansible_become_password: "<CHANGE_ME>"
+ansible_port: 22
+private_ip: "10.0.0.11"
+tfo_agent_name: "TFO Agent - 02"

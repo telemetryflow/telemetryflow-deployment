@@ -1,0 +1,26 @@
+apiVersion: telemetryflow.io/v1alpha1
+kind: TelemetryFlow
+metadata:
+  name: e2e-test
+  namespace: default
+spec:
+  version: "1.4.0"
+  postgresql:
+    image: "postgres:16-alpine"
+    replicas: 1
+  backend:
+    image: "telemetryflow/backend:latest"
+    replicas: 1
+  agent:
+    enabled: true
+    image: "telemetryflow/agent:latest"
+    node:
+      enabled: true
+    kubernetes:
+      enabled: true
+      replicas: 1
+  collector:
+    image: "telemetryflow/collector:latest"
+    replicas: 1
+  secrets:
+    create: true

@@ -1,0 +1,16 @@
+bin/
+testbin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+vendor/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

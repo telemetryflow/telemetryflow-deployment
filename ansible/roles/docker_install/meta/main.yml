@@ -1,0 +1,21 @@
+---
+galaxy_info:
+  author: TelemetryFlow
+  description: Install Docker Engine and Docker Compose on RHEL and Debian/Ubuntu
+  license: proprietary
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+dependencies:
+  - net_tools

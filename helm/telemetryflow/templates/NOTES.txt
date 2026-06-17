@@ -1,0 +1,117 @@
+═════════════════════════════════════════════════════════════════════
+  ████████╗███████╗██╗      ███████╗███╗   ███╗███████╗████████╗██████╗ ██╗   ██╗
+  ╚══██╔══╝██╔════╝██║      ██╔════╝████╗ ████║██╔════╝╚══██╔══╝██╔══██╗╚██╗ ██╔╝
+     ██║   █████╗  ██║      █████╗  ██╔████╔██║█████╗     ██║   ██████╔╝ ╚████╔╝
+     ██║   ██╔══╝  ██║      ██╔══╝  ██║╚██╔╝██║██╔══╝     ██║   ██╔══██╗  ╚██╔╝
+     ██║   ███████╗███████╗ ███████╗██║ ╚═╝ ██║███████╗   ██║   ██║  ██║   ██║
+     ╚═╝   ╚══════╝╚══════╝ ╚══════╝╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝
+     ███████╗██╗      ██████╗ ██╗    ██╗
+     ██╔════╝██║     ██╔═══██╗██║    ██║
+     █████╗  ██║     ██║   ██║██║ █╗ ██║
+     ██╔══╝  ██║     ██║   ██║██║███╗██║
+     ██║     ███████╗╚██████╔╝╚███╔███╔╝
+     ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝   v{{ .Chart.AppVersion }}
+═════════════════════════════════════════════════════════════════════
+
+TelemetryFlow has been deployed to namespace: {{ include "telemetryflow.namespace" . }}
+Release:     {{ .Release.Name }}
+Environment: {{ .Values.global.environment }}
+Chart:       {{ include "telemetryflow.chart" . }}
+
+DEPLOYMENT SUMMARY:
+───────────────────────────────────────────────────────────────────
+
+{{- if .Values.tfoBackend.enabled }}
+  TFO Backend (NestJS)    : {{ .Values.tfoBackend.replicas }} replicas -> port {{ .Values.tfoBackend.ports.http.containerPort }}
+{{- end }}
+{{- if .Values.tfoViz.enabled }}
+  TFO Viz (Vue.js)        : {{ .Values.tfoViz.replicas }} replicas -> port {{ .Values.tfoViz.ports.http.containerPort }}
+{{- end }}
+{{- if .Values.tfoCollector.enabled }}
+  TFO Collector (OTEL)    : {{ .Values.tfoCollector.replicas }} replicas -> OTLP {{ .Values.tfoCollector.ports.otlp.containerPort }}/{{ .Values.tfoCollector.ports.otlpHttp.containerPort }}
+{{- end }}
+{{- if .Values.tfoAgent.enabled }}
+  TFO Agent (DaemonSet)   : Running on all worker nodes
+{{- end }}
+{{- if .Values.bullmq.enabled }}
+  Redis (BullMQ)          : Master -> port {{ .Values.tfoBackend.env.REDIS_BULL_PORT }}
+{{- end }}
+{{- if .Values.nats.enabled }}
+  NATS                    : {{ .Values.nats.image.tag }} JetStream {{ .Values.nats.jetstream.enabled }} -> port 4222
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+  PostgreSQL              : {{ .Values.postgresql.replicas }} replica -> port {{ .Values.postgresql.env.POSTGRES_PORT }}
+{{- end }}
+{{- if .Values.clickhouse.enabled }}
+  ClickHouse              : {{ .Values.clickhouse.replicas }} replica -> port {{ .Values.clickhouse.ports.http.containerPort }}/{{ .Values.clickhouse.ports.native.containerPort }}
+{{- end }}
+{{- if .Values.cacheRedis.enabled }}
+  Redis Cache             : Standalone -> port 6379
+{{- end }}
+
+ACCESS URLS:
+───────────────────────────────────────────────────────────────────
+{{- if .Values.tfoViz.ingress.enabled }}
+{{- range $host := (regexSplit "," (default (printf "%s-viz.%s" .Release.Name .Values.global.domain) .Values.tfoViz.ingress.host) -1) }}
+  Dashboard:  http://{{ $host }}
+{{- end }}
+{{- else }}
+  Dashboard:  kubectl port-forward svc/{{ .Release.Name }}-tfo-viz 8080:{{ .Values.tfoViz.ports.http.containerPort }} -n {{ include "telemetryflow.namespace" . }}
+{{- end }}
+{{- if .Values.tfoBackend.ingress.enabled }}
+{{- range $host := (regexSplit "," (default (printf "%s-backend.%s" .Release.Name .Values.global.domain) .Values.tfoBackend.ingress.host) -1) }}
+  API:        http://{{ $host }}
+{{- end }}
+{{- else }}
+  API:        kubectl port-forward svc/{{ .Release.Name }}-tfo-backend 8080:{{ .Values.tfoBackend.ports.http.containerPort }} -n {{ include "telemetryflow.namespace" . }}
+{{- end }}
+
+OTLP ENDPOINTS (send telemetry here):
+───────────────────────────────────────────────────────────────────
+  gRPC: {{ .Release.Name }}-tfo-collector.{{ include "telemetryflow.namespace" . }}.svc.cluster.local:{{ .Values.tfoCollector.ports.otlp.containerPort }}
+  HTTP: {{ .Release.Name }}-tfo-collector.{{ include "telemetryflow.namespace" . }}.svc.cluster.local:{{ .Values.tfoCollector.ports.otlpHttp.containerPort }}
+
+IMPORTANT - UPDATE SECRETS:
+───────────────────────────────────────────────────────────────────
+  Default passwords are set to placeholder values ("<CHANGE_ME>").
+  Update secrets before production use:
+
+  kubectl -n {{ include "telemetryflow.namespace" . }} get secrets
+
+{{- if .Values.secrets.create }}
+  kubectl edit secret tfo-backend-secrets -n {{ include "telemetryflow.namespace" . }}
+{{- end }}
+
+VERIFY DEPLOYMENT:
+───────────────────────────────────────────────────────────────────
+  kubectl -n {{ include "telemetryflow.namespace" . }} get pods
+  kubectl -n {{ include "telemetryflow.namespace" . }} get svc
+  kubectl -n {{ include "telemetryflow.namespace" . }} get pvc
+
+HEALTH CHECKS:
+───────────────────────────────────────────────────────────────────
+{{- if .Values.tfoBackend.enabled }}
+  Backend:    kubectl -n {{ include "telemetryflow.namespace" . }} exec deploy/{{ .Release.Name }}-tfo-backend -- wget -qO- http://localhost:{{ .Values.tfoBackend.ports.http.containerPort }}/health/ready
+{{- end }}
+{{- if .Values.tfoCollector.enabled }}
+  Collector:  kubectl -n {{ include "telemetryflow.namespace" . }} exec deploy/{{ .Release.Name }}-tfo-collector -- wget -qO- http://localhost:{{ .Values.tfoCollector.ports.healthCheck.containerPort }}/
+{{- end }}
+{{- if .Values.clickhouse.enabled }}
+  ClickHouse: kubectl -n {{ include "telemetryflow.namespace" . }} exec sts/{{ .Release.Name }}-clickhouse -- wget -qO- http://localhost:{{ .Values.clickhouse.ports.http.containerPort }}/ping
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+  PostgreSQL: kubectl -n {{ include "telemetryflow.namespace" . }} exec sts/{{ .Release.Name }}-postgresql -- pg_isready -U {{ .Values.postgresql.env.POSTGRES_USER }}
+{{- end }}
+
+NEXT STEPS:
+───────────────────────────────────────────────────────────────────
+  1. Verify all pods are running:
+     kubectl get pods -n {{ include "telemetryflow.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+  2. Check deployment status:
+     helm status {{ .Release.Name }} -n {{ include "telemetryflow.namespace" . }}
+
+  3. View all resources:
+     kubectl get all -n {{ include "telemetryflow.namespace" . }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+═════════════════════════════════════════════════════════════════════

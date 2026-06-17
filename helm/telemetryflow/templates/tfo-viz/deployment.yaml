@@ -1,0 +1,129 @@
+{{- if .Values.tfoViz.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-viz
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-viz
+  {{- with .Values.global.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.tfoViz.replicas }}
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: tfo-viz
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: tfo-viz
+      annotations:
+        checksum/config: {{ toJson .Values.tfoViz | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "telemetryflow.serviceAccountName" (dict "serviceAccount" .Values.tfoViz.serviceAccount "component" "tfo-viz" "context" $) }}
+      securityContext:
+        runAsNonRoot: {{ .Values.tfoViz.securityContext.runAsNonRoot }}
+        runAsUser: {{ .Values.tfoViz.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.tfoViz.securityContext.runAsGroup }}
+        readOnlyRootFilesystem: {{ .Values.tfoViz.securityContext.readOnlyRootFilesystem }}
+      containers:
+        - name: tfo-viz
+          image: "{{ .Values.tfoViz.image.repository }}:{{ .Values.tfoViz.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.tfoViz.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.tfoViz.ports.http.containerPort }}
+              protocol: {{ .Values.tfoViz.ports.http.protocol }}
+          {{- if .Values.tfoViz.healthChecks.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.tfoViz.healthChecks.liveness.httpGet.path }}
+              port: {{ .Values.tfoViz.healthChecks.liveness.httpGet.port }}
+            initialDelaySeconds: {{ .Values.tfoViz.healthChecks.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.tfoViz.healthChecks.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.tfoViz.healthChecks.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.tfoViz.healthChecks.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.tfoViz.healthChecks.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.tfoViz.healthChecks.readiness.httpGet.path }}
+              port: {{ .Values.tfoViz.healthChecks.readiness.httpGet.port }}
+            initialDelaySeconds: {{ .Values.tfoViz.healthChecks.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.tfoViz.healthChecks.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.tfoViz.healthChecks.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.tfoViz.healthChecks.readiness.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.tfoViz.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-viz
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-viz
+  {{- with .Values.tfoViz.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.tfoViz.service.type }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-viz
+{{- if .Values.tfoViz.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-tfo-viz
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tfo-viz
+  {{- with (merge .Values.tfoViz.ingress.annotations .Values.global.ingress.annotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if or .Values.tfoViz.ingress.className .Values.global.ingress.className }}
+  ingressClassName: {{ .Values.tfoViz.ingress.className | default .Values.global.ingress.className }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.tfoViz.ingress.host | default .Values.global.domain }}
+      http:
+        paths:
+          - path: {{ .Values.tfoViz.ingress.path }}
+            pathType: {{ .Values.tfoViz.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-viz
+                port:
+                  number: 80
+  {{- if or .Values.tfoViz.ingress.tls .Values.global.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.tfoViz.ingress.host | default .Values.global.domain }}
+      secretName: {{ .Values.tfoViz.ingress.tlsSecretName | default .Values.global.tls.secretName }}
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,15 @@
+---
+- name: TelemetryFlow Kubernetes Cluster — Full Deployment
+  ansible.builtin.import_playbook: 00-prerequisites.yml
+
+- name: Install RKE2
+  ansible.builtin.import_playbook: 01-rke2-install.yml
+
+- name: Post-install configuration
+  ansible.builtin.import_playbook: 02-post-install.yml
+
+- name: Deploy TelemetryFlow
+  ansible.builtin.import_playbook: 03-deploy-telemetryflow.yml
+
+- name: Maintenance and verification
+  ansible.builtin.import_playbook: 04-maintenance.yml

@@ -1,0 +1,99 @@
+# Deploy EKS Staging
+#
+# Triggered after CI passes on the develop branch.
+# Uses GitHub Environment "eks-staging" with protection rules:
+#   - Required reviewers: enabled
+#   - Wait timer: 2 minutes
+#
+# APPROVAL EMAIL NOTIFICATION:
+#   GitHub automatically sends email notifications to all designated environment
+#   reviewers when a deployment is pending approval. Configure reviewers in:
+#   Settings > Environments > eks-staging > Required reviewers
+
+name: Deploy EKS Staging
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [develop]
+
+concurrency:
+  group: deploy_eks_staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  HELM_CHART: helm/telemetryflow
+  RELEASE_NAME: telemetryflow
+  NAMESPACE: telemetryflow
+
+jobs:
+  deploy:
+    name: Deploy to EKS Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: eks-staging
+      # Protection rules configured in GitHub Settings > Environments:
+      #   - Required reviewers: enabled
+      #   - Wait timer: 2 minutes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+
+      - name: Install CRDs
+        run: bash scripts/install-crds.sh
+
+      - name: Deploy via Helm
+        run: |
+          helm upgrade "$RELEASE_NAME" "$HELM_CHART" \
+            --install \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            -f helm/telemetryflow/values.yaml \
+            -f manifest/tfo-eks-staging.yaml \
+            --timeout 5m \
+            --wait \
+            --history-max 10
+
+      - name: Smoke Test
+        run: |
+          BACKEND_URL="$(kubectl get svc "$RELEASE_NAME"-tfo-backend -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "No external hostname found, skipping smoke test"
+            exit 0
+          fi
+          HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" "http://${BACKEND_URL}:8080/health/live" --max-time 10 || echo "000")"
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "::warning::Smoke test returned HTTP $HTTP_CODE"
+          else
+            echo "Smoke test passed (HTTP 200)"
+          fi
+
+      - name: Print Pod Status
+        if: always()
+        run: kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/instance="$RELEASE_NAME"

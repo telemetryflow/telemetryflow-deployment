@@ -1,0 +1,75 @@
+---
+- name: Fetch kubeconfig from first master
+  ansible.builtin.fetch:
+    src: "{{ kubeconfig }}"
+    dest: "{{ playbook_dir }}/../kubeconfig"
+    flat: true
+    mode: "0600"
+
+- name: Wait for all nodes to be Ready
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - wait
+      - --for=condition=Ready
+      - node
+      - --all
+      - --timeout={{ kubectl_timeout }}s
+  changed_when: false
+
+- name: Apply node labels
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - label
+      - node
+      - "{{ item }}"
+      - "{{ label.key }}={{ label.value }}"
+      - --overwrite
+  loop: "{{ groups['workers'] | product(node_labels) | list }}"
+  loop_control:
+    label: "{{ item[0] }} -> {{ item[1].key }}"
+  vars:
+    label: "{{ item[1] }}"
+  when: node_labels | length > 0
+  changed_when: true
+
+- name: Apply node taints
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - taint
+      - node
+      - "{{ taint.node }}"
+      - "{{ taint.key }}={{ taint.value }}:{{ taint.effect }}"
+      - --overwrite
+  loop: "{{ node_taints }}"
+  loop_control:
+    label: "{{ taint.node }} -> {{ taint.key }}"
+  vars:
+    taint: "{{ item }}"
+  when: node_taints | length > 0
+  changed_when: true
+
+- name: Display cluster node status
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - get
+      - nodes
+      - -o
+      - wide
+  changed_when: false
+  register: nodes_output
+
+- name: Show node status
+  ansible.builtin.debug:
+    msg: "{{ nodes_output.stdout_lines }}"

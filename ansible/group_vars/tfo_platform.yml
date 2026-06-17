@@ -1,0 +1,54 @@
+---
+# Variables for TelemetryFlow platform hosts (Docker-based deployment).
+# Replace ALL <CHANGE_ME> placeholders with your actual values before deploying.
+
+tfo_platform_install_dir: "/opt/telemetryflow-platform"
+tfo_platform_config_dir: "/etc/telemetryflow-platform"
+tfo_platform_log_dir: "/var/log/telemetryflow-platform"
+tfo_platform_compose_project_name: "telemetryflow-platform"
+
+tfo_platform_network_name: "telemetryflow_platform_net"
+tfo_platform_network_subnet: "172.152.152.0/24"
+tfo_platform_network_gateway: "172.152.152.1"
+
+tfo_postgres_image: "postgres:16-alpine"
+tfo_postgres_port: 5432
+tfo_postgres_db: "telemetryflow"
+tfo_postgres_user: "telemetryflow"
+tfo_postgres_password: "<CHANGE_ME>"
+tfo_postgres_container_ip: "172.152.152.10"
+
+tfo_clickhouse_image: "clickhouse/clickhouse-server:24-alpine"
+tfo_clickhouse_http_port: 8123
+tfo_clickhouse_tcp_port: 9000
+tfo_clickhouse_user: "default"
+tfo_clickhouse_password: "<CHANGE_ME>"
+tfo_clickhouse_container_ip: "172.152.152.20"
+
+tfo_redis_image: "redis:7-alpine"
+tfo_redis_port: 6379
+tfo_redis_password: "<CHANGE_ME>"
+tfo_redis_container_ip: "172.152.152.30"
+
+tfo_nats_image: "nats:2-alpine"
+tfo_nats_client_port: 4222
+tfo_nats_management_port: 8222
+tfo_nats_container_ip: "172.152.152.40"
+
+tfo_backend_port: 8080
+tfo_backend_container_ip: "172.152.152.50"
+tfo_backend_jwt_secret: "<CHANGE_ME>"
+tfo_backend_session_secret: "<CHANGE_ME>"
+tfo_backend_encryption_key: "<CHANGE_ME>"
+tfo_backend_mfa_encryption_key: "<CHANGE_ME>"
+tfo_backend_llm_encryption_key: "<CHANGE_ME>"
+
+tfo_collector_container_ip: "172.152.152.60"
+
+tfo_viz_http_port: 80
+tfo_viz_https_port: 443
+tfo_viz_container_ip: "172.152.152.70"
+
+tfo_portainer_enabled: false
+tfo_portainer_port: 9443
+tfo_portainer_container_ip: "172.152.152.80"

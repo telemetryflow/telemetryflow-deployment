@@ -1,0 +1,25 @@
+---
+- name: Ping all hosts
+  hosts: all
+  tags: [ping, always]
+  tasks:
+    - name: Ping
+      ansible.builtin.ping:
+
+- name: Deploy platform
+  hosts: tfo_platform
+  tags: [platform]
+  roles:
+    - role: tfo_platform
+
+- name: Deploy agent binary
+  hosts: tfo_agents:tfo_platform
+  tags: [agents]
+  roles:
+    - role: tfo_agent_binary
+
+- name: Install Docker
+  hosts: tfo_agents:tfo_platform
+  tags: [docker]
+  roles:
+    - role: docker_install

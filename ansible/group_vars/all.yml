@@ -1,0 +1,26 @@
+---
+# Shared variables for all TelemetryFlow hosts.
+# Replace ALL <CHANGE_ME> placeholders with your actual values before deploying.
+
+timezone: "UTC"
+
+docker_compose_version: "2.24.5"
+docker_engine_version: "25.0"
+
+tfo_collector_version: "latest"
+tfo_backend_version: "latest"
+tfo_agent_version: "latest"
+tfo_viz_version: "latest"
+
+tfo_collector_host: "10.0.1.10"
+tfo_collector_grpc_port: 4317
+tfo_collector_http_port: 4318
+
+tfo_api_key_id: "<CHANGE_ME>"
+tfo_api_key_secret: "<CHANGE_ME>"
+
+deployment_environment: "production"
+region: "us-east-1"
+cluster: "tfo-prod"
+datacenter: "dc1"
+provider: "vm"

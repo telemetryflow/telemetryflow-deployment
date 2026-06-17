@@ -1,0 +1,6 @@
+---
+- name: Run maintenance tasks
+  hosts: masters[0]
+  become: true
+  roles:
+    - maintenance

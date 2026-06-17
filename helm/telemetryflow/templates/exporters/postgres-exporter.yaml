@@ -1,0 +1,96 @@
+{{- if and .Values.monitoring.exporters.postgres.enabled .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-postgres-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres-exporter
+      annotations:
+        checksum/values: {{ toYaml .Values.monitoring.exporters.postgres | sha256sum }}
+    spec:
+      containers:
+        - name: postgres-exporter
+          {{- include "telemetryflow.image" (dict "repository" .Values.monitoring.exporters.postgres.image.repository "tag" .Values.monitoring.exporters.postgres.image.tag "pullPolicy" .Values.monitoring.exporters.postgres.image.pullPolicy) | nindent 10 }}
+          env:
+            - name: DATA_SOURCE_NAME
+              value: "postgresql://{{ .Values.postgresql.env.POSTGRES_USER }}:{{ .Values.postgresql.env.POSTGRES_PASSWORD }}@{{ include "telemetryflow.fullname" . }}-postgresql:{{ .Values.postgresql.env.POSTGRES_PORT | default "5432" }}/{{ .Values.postgresql.env.POSTGRES_DB }}?sslmode=disable"
+          ports:
+            - name: metrics
+              containerPort: 9187
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.monitoring.exporters.postgres.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9187
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9187
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-postgres-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9187
+      targetPort: 9187
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-postgres-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-exporter
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres-exporter
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+      honorLabels: {{ .Values.monitoring.serviceMonitor.honorLabels | default true }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "telemetryflow.namespace" . }}
+{{- end }}

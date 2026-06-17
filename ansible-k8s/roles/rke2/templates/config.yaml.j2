@@ -1,0 +1,35 @@
+write-kubeconfig-mode: "0644"
+
+{% if rke2_node_type == 'server' %}
+token: {{ rke2_token }}
+tls-san:
+  - {{ rke2_server_ip }}
+  - {{ cluster_name }}.{{ cluster_domain }}
+cluster-cidr: {{ cluster_cidr }}
+service-ccidr: {{ service_cidr }}
+cluster-dns: {{ cluster_dns }}
+{% if proxy_http | length > 0 %}
+environment:
+  HTTP_PROXY: "{{ proxy_http }}"
+  HTTPS_PROXY: "{{ proxy_https }}"
+  NO_PROXY: "{{ proxy_no }},{% for host in groups['all'] %}{{ hostvars[host]['ansible_host'] }},{% endfor %}"
+{% endif %}
+{% endif %}
+
+{% if rke2_node_type == 'agent' %}
+server: https://{{ rke2_server_ip }}:{{ rke2_api_port }}
+token: {{ rke2_token }}
+{% if proxy_http | length > 0 %}
+environment:
+  HTTP_PROXY: "{{ proxy_http }}"
+  HTTPS_PROXY: "{{ proxy_https }}"
+  NO_PROXY: "{{ proxy_no }},{% for host in groups['all'] %}{{ hostvars[host]['ansible_host'] }},{% endfor %}"
+{% endif %}
+{% endif %}
+
+{% if registry_mirror | length > 0 %}
+mirrors:
+  "*":
+    endpoint:
+      - "{{ registry_mirror }}"
+{% endif %}

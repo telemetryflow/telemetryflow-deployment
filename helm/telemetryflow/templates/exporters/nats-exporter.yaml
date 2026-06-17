@@ -1,0 +1,96 @@
+{{- if and .Values.monitoring.exporters.nats.enabled .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-nats-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nats-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: nats-exporter
+      annotations:
+        checksum/values: {{ toYaml .Values.monitoring.exporters.nats | sha256sum }}
+    spec:
+      containers:
+        - name: nats-exporter
+          {{- include "telemetryflow.image" (dict "repository" .Values.monitoring.exporters.nats.image.repository "tag" .Values.monitoring.exporters.nats.image.tag "pullPolicy" .Values.monitoring.exporters.nats.image.pullPolicy) | nindent 10 }}
+          args:
+            - -connstr
+            - "nats://{{ include "telemetryflow.fullname" . }}-nats:4222"
+          ports:
+            - name: metrics
+              containerPort: 7777
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.monitoring.exporters.nats.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 7777
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 7777
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-nats-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 7777
+      targetPort: 7777
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nats-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-nats-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats-exporter
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nats-exporter
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+      honorLabels: {{ .Values.monitoring.serviceMonitor.honorLabels | default true }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "telemetryflow.namespace" . }}
+{{- end }}

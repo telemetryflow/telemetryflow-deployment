@@ -1,0 +1,31 @@
+services:
+  redis:
+    image: {{ tfo_redis_image }}
+    container_name: {{ tfo_redis_container_name }}
+    restart: {{ tfo_redis_restart_policy }}
+    command: redis-server --requirepass {{ tfo_redis_password }} --appendonly yes
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_redis_container_ip }}
+    ports:
+      - "{{ tfo_redis_port }}:{{ tfo_redis_port }}"
+    volumes:
+      - {{ tfo_redis_data_dir }}:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_redis_log_max_size }}"
+        max-file: "{{ tfo_redis_log_max_file }}"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "{{ tfo_redis_password }}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.telemetryflow.service=redis"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

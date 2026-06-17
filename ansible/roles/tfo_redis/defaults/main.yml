@@ -1,0 +1,14 @@
+---
+tfo_redis_image: "redis:7-alpine"
+tfo_redis_container_name: "telemetryflow_platform_redis"
+tfo_redis_restart_policy: "unless-stopped"
+tfo_redis_log_max_size: "50m"
+tfo_redis_log_max_file: "5"
+
+tfo_redis_port: 6379
+tfo_redis_password: "<CHANGE_ME>"
+tfo_redis_container_ip: "172.152.152.30"
+
+tfo_redis_data_dir: "{{ tfo_platform_install_dir }}/data/redis"
+
+tfo_redis_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.redis.yml"

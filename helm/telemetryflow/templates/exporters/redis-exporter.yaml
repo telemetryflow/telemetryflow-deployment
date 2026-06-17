@@ -1,0 +1,100 @@
+{{- if and .Values.monitoring.exporters.redis.enabled .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-redis-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redis-exporter
+      annotations:
+        checksum/values: {{ toYaml .Values.monitoring.exporters.redis | sha256sum }}
+    spec:
+      containers:
+        - name: redis-exporter
+          {{- include "telemetryflow.image" (dict "repository" .Values.monitoring.exporters.redis.image.repository "tag" .Values.monitoring.exporters.redis.image.tag "pullPolicy" .Values.monitoring.exporters.redis.image.pullPolicy) | nindent 10 }}
+          env:
+            - name: REDIS_ADDR
+              value: "redis://{{ include "telemetryflow.fullname" . }}-cache-redis:6379"
+            {{- if .Values.redisMaster.enabled }}
+            - name: REDIS_ADDR_MASTER
+              value: "redis://{{ include "telemetryflow.fullname" . }}-redis-master:6379"
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 9121
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.monitoring.exporters.redis.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9121
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9121
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-redis-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9121
+      targetPort: 9121
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-redis-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-exporter
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis-exporter
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+      honorLabels: {{ .Values.monitoring.serviceMonitor.honorLabels | default true }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "telemetryflow.namespace" . }}
+{{- end }}

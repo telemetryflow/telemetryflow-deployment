@@ -1,0 +1,770 @@
+global:
+  namespace: telemetryflow
+  environment: staging
+  clusterName: default
+  timezone: UTC
+  imagePullPolicy: IfNotPresent
+  domain: telemetryflow.local
+  tls:
+    enabled: false
+    secretName: telemetryflow-tls
+  ingress:
+    className: ""
+    annotations: {}
+  labels:
+    app.kubernetes.io/part-of: telemetryflow
+    app.kubernetes.io/managed-by: helm
+  annotations: {}
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+
+tfoAgent:
+  enabled: true
+  image:
+    repository: telemetryflow/telemetryflow-agent
+    tag: "1.2.0"
+    pullPolicy: "IfNotPresent"
+  mode: daemonset
+  hostNetwork: true
+  hostPID: true
+  serviceAccount:
+    create: true
+    name: ""
+  rbac:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources:
+          - nodes
+          - nodes/metrics
+          - nodes/stats
+          - pods
+          - namespaces
+          - services
+          - endpoints
+          - events
+          - replicationcontrollers
+          - persistentvolumeclaims
+          - persistentvolumes
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources:
+          - daemonsets
+          - deployments
+          - replicasets
+          - statefulsets
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["batch"]
+        resources:
+          - jobs
+          - cronjobs
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["autoscaling"]
+        resources:
+          - horizontalpodautoscalers
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["networking.k8s.io"]
+        resources:
+          - ingresses
+          - networkpolicies
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["storage.k8s.io"]
+        resources:
+          - storageclasses
+          - volumeattachments
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["metrics.k8s.io"]
+        resources:
+          - pods
+          - nodes
+        verbs: ["get", "list"]
+      - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+        verbs: ["get"]
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+  config:
+    collectors:
+      k8sCluster:
+        enabled: true
+        collectionInterval: 30s
+      k8sNode:
+        enabled: true
+        collectionInterval: 30s
+      kubeletStats:
+        enabled: true
+        collectionInterval: 30s
+        endpoint: "https://${K8S_NODE_IP}:10250"
+        insecureSkipVerify: true
+      k8sObjects:
+        enabled: true
+        objects:
+          - name: pods
+            mode: watch
+            interval: 30s
+          - name: events
+            mode: watch
+            interval: 30s
+          - name: namespaces
+            mode: watch
+            interval: 60s
+      hostMetrics:
+        enabled: true
+        collectionInterval: 30s
+      prometheus:
+        enabled: true
+        scrapeInterval: 30s
+  kubernetes:
+    enabled: true
+    serviceMonitors:
+      enabled: true
+  initContainers: []
+
+tfoCollector:
+  enabled: true
+  image:
+    repository: telemetryflow/telemetryflow-collector
+    tag: "1.2.1"
+    pullPolicy: "IfNotPresent"
+  mode: deployment
+  replicas: 1
+  serviceAccount:
+    create: true
+    name: ""
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 10Gi
+  rbac:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "namespaces", "endpoints"]
+        verbs: ["get", "list", "watch"]
+  securityContext:
+    runAsUser: 10001
+    runAsGroup: 10001
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  ports:
+    otlp:
+      enabled: true
+      containerPort: 4317
+      protocol: TCP
+    otlpHttp:
+      enabled: true
+      containerPort: 4318
+      protocol: TCP
+    metrics:
+      enabled: true
+      containerPort: 8889
+      protocol: TCP
+    healthCheck:
+      enabled: true
+      containerPort: 13133
+      protocol: TCP
+    pprof:
+      enabled: false
+      containerPort: 1777
+      protocol: TCP
+    zpages:
+      enabled: false
+      containerPort: 55679
+      protocol: TCP
+  service:
+    type: ClusterIP
+    annotations: {}
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+            max_recv_msg_size_mib: 16
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch:
+        send_batch_size: 8192
+        send_batch_max_size: 16384
+        timeout: 5s
+      memory_limiter:
+        check_interval: 5s
+        ballast_size_mib: 256
+        limit_mib: 768
+        spike_limit_mib: 256
+      resource:
+        attributes:
+          - key: collector.source
+            value: tfo-collector
+            action: upsert
+      filter:
+        error_mode: ignore
+      tail_sampling:
+        policies:
+          - name: errors
+            type: status_code
+            status_code:
+              status_codes:
+                - ERROR
+          - name: slow-traces
+            type: latency
+            latency:
+              threshold_ms: 1000
+    exporters:
+      otlphttp:
+        endpoint: "http://tfo-backend:8080/v1/otlp"
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 5000
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: tfo_collector
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch, tail_sampling]
+          exporters: [otlphttp]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [otlphttp, prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [otlphttp]
+      extensions: [health_check]
+      extensions:
+        health_check:
+          endpoint: 0.0.0.0:13133
+  envFromSecrets: []
+
+tfoBackend:
+  enabled: true
+  image:
+    repository: telemetryflow/tfo-backend
+    tag: "1.4.0"
+    pullPolicy: "IfNotPresent"
+  replicas: 1
+  serviceAccount:
+    create: true
+    name: ""
+  rbac:
+    create: true
+    rules: []
+  securityContext:
+    runAsUser: 10001
+    runAsGroup: 10001
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  ports:
+    http:
+      containerPort: 8080
+      protocol: TCP
+    grpc:
+      containerPort: 4317
+      protocol: TCP
+  service:
+    type: ClusterIP
+    annotations: {}
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    tls: false
+    tlsSecretName: ""
+    host: ""
+    path: /
+    pathType: Prefix
+  env:
+    NODE_ENV: production
+    PORT: "8080"
+    GRPC_PORT: "4317"
+    LOG_LEVEL: info
+    TZ: UTC
+    API_RATE_LIMIT_MAX: "100"
+    API_RATE_LIMIT_WINDOW_MS: "60000"
+    HEALTH_CHECK_INTERVAL_MS: "30000"
+    SHUTDOWN_TIMEOUT_MS: "10000"
+    DB_HOST: "{{ .Release.Name }}-postgresql"
+    DB_PORT: "5432"
+    DB_NAME: telemetryflow
+    DB_USER: telemetryflow
+    DB_SSL: "false"
+    DB_POOL_MIN: "2"
+    DB_POOL_MAX: "10"
+    REDIS_CACHE_HOST: "{{ .Release.Name }}-cache-redis"
+    REDIS_CACHE_PORT: "6379"
+    REDIS_CACHE_DB: "0"
+    REDIS_CACHE_TTL: "3600"
+    REDIS_BULL_HOST: "{{ .Release.Name }}-redis-master"
+    REDIS_BULL_PORT: "6379"
+    REDIS_BULL_DB: "0"
+    NATS_URL: "nats://{{ .Release.Name }}-nats:4222"
+    NATS_CLUSTER: telemetryflow
+    CLICKHOUSE_HOST: "{{ .Release.Name }}-clickhouse"
+    CLICKHOUSE_PORT: "8123"
+    CLICKHOUSE_NATIVE_PORT: "9000"
+    CLICKHOUSE_USER: default
+    CLICKHOUSE_DATABASE: telemetryflow
+    CLICKHOUSE_CLUSTER: telemetryflow
+    CLICKHOUSE_TTL_DAYS: "30"
+    SESSION_SECRET: "<CHANGE_ME>"
+    JWT_SECRET: "<CHANGE_ME>"
+    ENCRYPTION_KEY: "<CHANGE_ME>"
+    ADMIN_EMAIL: admin@telemetryflow.local
+    ADMIN_PASSWORD: "<CHANGE_ME>"
+    SUPER_ADMIN_EMAIL: superadmin@telemetryflow.local
+    SUPER_ADMIN_PASSWORD: "<CHANGE_ME>"
+    DEFAULT_ORG_NAME: "Default Organization"
+    DEFAULT_ORG_SLUG: default-org
+  envFromSecrets: []
+  healthChecks:
+    liveness:
+      enabled: true
+      httpGet:
+        path: /health/live
+        port: http
+      initialDelaySeconds: 30
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      httpGet:
+        path: /health/ready
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    startup:
+      enabled: true
+      httpGet:
+        path: /health/live
+        port: http
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      failureThreshold: 30
+  initContainers:
+    waitForDb:
+      enabled: true
+      image:
+        repository: postgres
+        tag: "16-alpine"
+        pullPolicy: ""
+      command: |
+        until pg_isready -h {{ .Release.Name }}-postgresql -p 5432 -U telemetryflow; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+    waitForRedis:
+      enabled: true
+      image:
+        repository: redis
+        tag: "7-alpine"
+        pullPolicy: ""
+      command: |
+        until redis-cli -h {{ .Release.Name }}-cache-redis -p 6379 ping | grep -q PONG; do
+          echo "Waiting for Redis Cache..."
+          sleep 2
+        done
+    waitForClickHouse:
+      enabled: true
+      image:
+        repository: clickhouse/clickhouse-client
+        tag: "latest"
+        pullPolicy: ""
+      command: |
+        until clickhouse-client --host {{ .Release.Name }}-clickhouse --port 9000 --query "SELECT 1"; do
+          echo "Waiting for ClickHouse..."
+          sleep 2
+        done
+    waitForNats:
+      enabled: true
+      image:
+        repository: nats
+        tag: "2-alpine"
+        pullPolicy: ""
+      command: |
+        until nc -z {{ .Release.Name }}-nats 4222; do
+          echo "Waiting for NATS..."
+          sleep 2
+        done
+    migrations:
+      enabled: true
+      image:
+        repository: telemetryflow/tfo-backend
+        tag: "1.4.0"
+        pullPolicy: ""
+      command: |
+        npm run db:migrate
+    seeds:
+      enabled: false
+      image:
+        repository: telemetryflow/tfo-backend
+        tag: "1.4.0"
+        pullPolicy: ""
+      command: |
+        npm run db:seed
+
+tfoViz:
+  enabled: true
+  image:
+    repository: telemetryflow/tfo-viz
+    tag: "1.4.0"
+    pullPolicy: "IfNotPresent"
+  replicas: 1
+  serviceAccount:
+    create: false
+    name: ""
+  securityContext:
+    runAsUser: 101
+    runAsGroup: 101
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  ports:
+    http:
+      containerPort: 8080
+      protocol: TCP
+  service:
+    type: ClusterIP
+    annotations: {}
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    tls: false
+    tlsSecretName: ""
+    host: ""
+    path: /
+    pathType: Prefix
+  healthChecks:
+    liveness:
+      enabled: true
+      httpGet:
+        path: /
+        port: http
+      initialDelaySeconds: 15
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      httpGet:
+        path: /
+        port: http
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: "IfNotPresent"
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 20Gi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  env:
+    POSTGRES_DB: telemetryflow
+    POSTGRES_USER: telemetryflow
+    POSTGRES_PASSWORD: "<CHANGE_ME>"
+    POSTGRES_PORT: "5432"
+    POSTGRES_MAX_CONNECTIONS: "100"
+    POSTGRES_SHARED_BUFFERS: 256MB
+  healthChecks:
+    liveness:
+      enabled: true
+      exec:
+        command:
+          - pg_isready
+          - -U
+          - telemetryflow
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      exec:
+        command:
+          - pg_isready
+          - -U
+          - telemetryflow
+          - -d
+          - telemetryflow
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+clickhouse:
+  enabled: true
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: "24.1-alpine"
+    pullPolicy: "IfNotPresent"
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 50Gi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  env:
+    CLICKHOUSE_DB: telemetryflow
+    CLICKHOUSE_USER: default
+    CLICKHOUSE_PASSWORD: "<CHANGE_ME>"
+    CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    CLICKHOUSE_LOG_LEVEL: information
+  healthChecks:
+    liveness:
+      enabled: true
+      httpGet:
+        path: /ping
+        port: http
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      httpGet:
+        path: /ping
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+  ports:
+    http:
+      containerPort: 8123
+      protocol: TCP
+    native:
+      containerPort: 9000
+      protocol: TCP
+
+cacheRedis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: "IfNotPresent"
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 5Gi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    REDIS_MAXMEMORY: 200mb
+    REDIS_MAXMEMORY_POLICY: allkeys-lru
+
+redisMaster:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: "IfNotPresent"
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 10Gi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    REDIS_MAXMEMORY: 400mb
+    REDIS_MAXMEMORY_POLICY: noeviction
+
+nats:
+  enabled: true
+  image:
+    repository: nats
+    tag: "2.10-alpine"
+    pullPolicy: "IfNotPresent"
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 10Gi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  jetstream:
+    enabled: true
+    maxSize: 5Gi
+    maxMemory: 256Mi
+
+bullmq:
+  enabled: true
+  board:
+    enabled: false
+    image:
+      repository: venomous/bullboard
+      tag: latest
+      pullPolicy: "IfNotPresent"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    service:
+      type: ClusterIP
+      port: 3000
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    honorLabels: true
+  exporters:
+    redis:
+      enabled: false
+      image:
+        repository: oliver006/redis_exporter
+        tag: latest
+        pullPolicy: ""
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+    nats:
+      enabled: false
+      image:
+        repository: natsio/prometheus-nats-exporter
+        tag: latest
+        pullPolicy: ""
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+    postgres:
+      enabled: false
+      image:
+        repository: prometheuscommunity/postgres-exporter
+        tag: latest
+        pullPolicy: ""
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+    clickhouse:
+      enabled: false
+      image:
+        repository: clickhouse/clickhouse-exporter
+        tag: latest
+        pullPolicy: ""
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+
+secrets:
+  create: true
+  backend:
+    SESSION_SECRET: "<CHANGE_ME>"
+    JWT_SECRET: "<CHANGE_ME>"
+    ENCRYPTION_KEY: "<CHANGE_ME>"
+    ADMIN_PASSWORD: "<CHANGE_ME>"
+    SUPER_ADMIN_PASSWORD: "<CHANGE_ME>"
+  agent:
+    API_KEY: "<CHANGE_ME>"
+  database:
+    POSTGRES_PASSWORD: "<CHANGE_ME>"
+    CLICKHOUSE_PASSWORD: "<CHANGE_ME>"
+
+networkPolicy:
+  enabled: false

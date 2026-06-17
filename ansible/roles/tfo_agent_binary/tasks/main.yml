@@ -1,0 +1,80 @@
+---
+- name: Create agent user and group
+  ansible.builtin.group:
+    name: "{{ tfo_agent_group }}"
+    system: true
+    state: present
+
+- name: Create agent user
+  ansible.builtin.user:
+    name: "{{ tfo_agent_user }}"
+    group: "{{ tfo_agent_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+
+- name: Create agent directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ tfo_agent_user }}"
+    group: "{{ tfo_agent_group }}"
+    mode: "0755"
+  loop:
+    - "{{ tfo_agent_install_dir }}"
+    - "{{ tfo_agent_config_dir }}"
+    - "{{ tfo_agent_log_dir }}"
+
+- name: Download agent binary
+  ansible.builtin.get_url:
+    url: "{{ tfo_agent_binary_url }}"
+    dest: "{{ tfo_agent_install_dir }}/tfo-agent"
+    mode: "0755"
+    owner: "{{ tfo_agent_user }}"
+    group: "{{ tfo_agent_group }}"
+    checksum: "{{ tfo_agent_binary_checksum if tfo_agent_binary_checksum else omit }}"
+  notify: restart tfo agent
+
+- name: Deploy agent configuration
+  ansible.builtin.template:
+    src: tfo-agent.yaml.j2
+    dest: "{{ tfo_agent_config_file }}"
+    owner: "{{ tfo_agent_user }}"
+    group: "{{ tfo_agent_group }}"
+    mode: "0644"
+  notify: restart tfo agent
+
+- name: Deploy agent environment file
+  ansible.builtin.template:
+    src: tfo-agent.env.j2
+    dest: "{{ tfo_agent_env_file }}"
+    owner: "{{ tfo_agent_user }}"
+    group: "{{ tfo_agent_group }}"
+    mode: "0600"
+  notify: restart tfo agent
+
+- name: Deploy agent systemd service
+  ansible.builtin.template:
+    src: tfo-agent.service.j2
+    dest: "{{ tfo_agent_service_file }}"
+    mode: "0644"
+  notify: restart tfo agent
+
+- name: Enable and start agent service
+  ansible.builtin.systemd:
+    name: "{{ tfo_agent_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for agent health check
+  ansible.builtin.uri:
+    url: "http://localhost:{{ tfo_agent_health_check_port }}/health"
+    method: GET
+    status_code: 200
+  register: _agent_health
+  until: _agent_health.status == 200
+  retries: 15
+  delay: 2
+  tags: [healthcheck]

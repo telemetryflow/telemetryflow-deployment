@@ -1,0 +1,179 @@
+global:
+  environment: production
+  clusterName: tfo-production
+  timezone: Asia/Jakarta
+  domain: telemetryflow.local
+  tls:
+    enabled: true
+    secretName: telemetryflow-tls
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+tfoAgent:
+  image:
+    tag: "1.4.0"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+tfoCollector:
+  replicas: 2
+  persistence:
+    size: 50Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  config:
+    processors:
+      batch:
+        send_batch_size: 16384
+        send_batch_max_size: 32768
+        timeout: 10s
+      memory_limiter:
+        check_interval: 5s
+        ballast_size_mib: 512
+        limit_mib: 1536
+        spike_limit_mib: 512
+
+tfoBackend:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  env:
+    NODE_ENV: production
+    LOG_LEVEL: warn
+    API_RATE_LIMIT_MAX: "500"
+    API_RATE_LIMIT_WINDOW_MS: "60000"
+    DB_POOL_MIN: "5"
+    DB_POOL_MAX: "25"
+    CLICKHOUSE_TTL_DAYS: "90"
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    tls: true
+    tlsSecretName: telemetryflow-api-tls
+    host: api.telemetryflow.local
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  initContainers:
+    seeds:
+      enabled: false
+
+tfoViz:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    tls: true
+    tlsSecretName: telemetryflow-viz-tls
+    host: telemetryflow.local
+
+postgresql:
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  env:
+    POSTGRES_MAX_CONNECTIONS: "200"
+    POSTGRES_SHARED_BUFFERS: 512MB
+
+clickhouse:
+  persistence:
+    size: 100Gi
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+cacheRedis:
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    REDIS_MAXMEMORY: 400mb
+
+redisMaster:
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  env:
+    REDIS_MAXMEMORY: 800mb
+
+nats:
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  jetstream:
+    maxSize: 15Gi
+    maxMemory: 512Mi
+
+secrets:
+  create: false

@@ -1,0 +1,23 @@
+apiVersion: v2
+name: telemetryflow
+description: TelemetryFlow - Enterprise-grade observability platform. 100% OTLP compliant with multi-tenancy, RBAC, and ClickHouse analytics.
+type: application
+version: "1.0.0"
+appVersion: "1.4.0"
+home: https://github.com/telemetryflow
+icon: https://telemetryflow.io/logo.png
+maintainers:
+  - name: TelemetryFlow Team
+    email: support@telemetryflow.id
+keywords:
+  - observability
+  - opentelemetry
+  - otlp
+  - metrics
+  - logs
+  - traces
+  - monitoring
+  - clickhouse
+sources:
+  - https://github.com/telemetryflow/telemetryflow-platform
+dependencies: []

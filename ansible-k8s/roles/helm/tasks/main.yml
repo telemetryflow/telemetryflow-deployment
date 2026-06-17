@@ -1,0 +1,75 @@
+---
+- name: Ensure Helm is installed
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: "{{ helm_binary }}"
+
+- name: Create TelemetryFlow namespace
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+      - create
+      - namespace
+      - "{{ telemetryflow_namespace }}"
+  register: ns_result
+  changed_when: "'created' in ns_result.stdout"
+  failed_when:
+    - ns_result.rc != 0
+    - "'AlreadyExists' not in ns_result.stderr"
+
+- name: Add TelemetryFlow Helm repository
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - repo
+      - add
+      - "{{ telemetryflow_repo_name }}"
+      - "{{ telemetryflow_repo_url }}"
+  register: repo_result
+  changed_when: "'has been added' in repo_result.stdout"
+
+- name: Update Helm repositories
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - repo
+      - update
+  changed_when: "'Update Complete' in helm_update_output.stdout"
+  register: helm_update_output
+
+- name: Deploy TelemetryFlow Helm release
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - upgrade
+      - --install
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+      - --namespace
+      - "{{ telemetryflow_namespace }}"
+      - --version
+      - "{{ telemetryflow_chart_version }}"
+      - --values
+      - "{{ telemetryflow_values_file }}"
+      - "{{ telemetryflow_release_name }}"
+      - "{{ telemetryflow_repo_name }}/{{ telemetryflow_chart_name }}"
+  register: helm_result
+  changed_when: "'STATUS: deployed' in helm_result.stdout or 'STATUS: upgraded' in helm_result.stdout"
+
+- name: Verify TelemetryFlow release
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - status
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+      - "{{ telemetryflow_release_name }}"
+      - --namespace
+      - "{{ telemetryflow_namespace }}"
+  register: status_result
+  changed_when: false
+  failed_when: "'deployed' not in status_result.stdout"

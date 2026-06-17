@@ -1,0 +1,215 @@
+---
+apiVersion: telemetryflow.io/v1alpha1
+kind: TelemetryFlow
+metadata:
+  name: telemetryflow-sample
+  namespace: telemetryflow
+  labels:
+    app.kubernetes.io/name: telemetryflow
+    app.kubernetes.io/instance: telemetryflow-sample
+spec:
+  version: "1.4.0"
+
+  backend:
+    image: "telemetryflow/tfo-backend:1.4.0"
+    replicas: 2
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    ports:
+      - containerPort: 8080
+        name: http
+    env:
+      - name: NODE_ENV
+        value: production
+      - name: PORT
+        value: "8080"
+
+  frontend:
+    image: "telemetryflow/tfo-viz:1.4.0"
+    replicas: 2
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "250m"
+        memory: "256Mi"
+    ports:
+      - containerPort: 3000
+        name: http
+
+  collector:
+    image: "telemetryflow/telemetryflow-collector:1.2.1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    persistence:
+      enabled: true
+      size: "10Gi"
+    ports:
+      - containerPort: 4317
+        name: grpc
+      - containerPort: 4318
+        name: http
+      - containerPort: 8889
+        name: prometheus
+      - containerPort: 13133
+        name: health
+    env:
+      - name: TELEMETRYFLOW_ENVIRONMENT
+        value: production
+      - name: BATCH_SIZE
+        value: "8192"
+    serviceAccount:
+      create: true
+      name: ""
+    security:
+      runAsNonRoot: true
+      runAsUser: 10001
+      runAsGroup: 10001
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      seccompProfileType: RuntimeDefault
+      dropCapabilities:
+        - ALL
+
+  agent:
+    enabled: true
+    image: "telemetryflow/telemetryflow-agent:1.2.0"
+    serviceAccount:
+      create: true
+      name: ""
+    env:
+      - name: LOG_LEVEL
+        value: info
+      - name: LOG_FORMAT
+        value: json
+    node:
+      enabled: true
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+    kubernetes:
+      enabled: true
+      replicas: 1
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+
+  postgresql:
+    image: "postgres:16-alpine"
+    replicas: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+    persistence:
+      enabled: true
+      size: "20Gi"
+    credentials:
+      name: "telemetryflow-db-credentials"
+    env:
+      - name: POSTGRES_DB
+        value: telemetryflow
+      - name: POSTGRES_USER
+        value: telemetryflow
+
+  clickhouse:
+    image: "clickhouse/clickhouse-server:24-alpine"
+    replicas: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+    persistence:
+      enabled: true
+      size: "50Gi"
+
+  redis:
+    image: "redis:7-alpine"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "250m"
+        memory: "256Mi"
+    persistence:
+      enabled: true
+      size: "5Gi"
+    maxMemory: "200mb"
+    evictionPolicy: "allkeys-lru"
+
+  bullmqRedis:
+    image: "redis:7-alpine"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    persistence:
+      enabled: true
+      size: "10Gi"
+    maxMemory: "400mb"
+    evictionPolicy: "noeviction"
+
+  nats:
+    image: "nats:2.10-alpine"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    persistence:
+      enabled: true
+      size: "10Gi"
+    jetStreamEnabled: true
+
+  ingress:
+    enabled: false
+    className: "nginx"
+    hosts:
+      - host: "telemetryflow.example.com"
+        paths:
+          - "/"
+          - "/api"
+    tlsEnabled: true
+
+  secrets:
+    create: true
+    backend:
+      name: "telemetryflow-backend-secret"
+    agent:
+      name: "telemetryflow-agent-secret"
+    collector:
+      name: "telemetryflow-collector-secret"
+    database:
+      name: "telemetryflow-db-secret"

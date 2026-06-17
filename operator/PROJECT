@@ -1,0 +1,9 @@
+domain: telemetryflow.io
+layout: go.kubebuilder.io/v4
+projectName: telemetryflow-operator
+repo: github.com/telemetryflow/telemetryflow-operator
+version: "3"
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+multigroup: false

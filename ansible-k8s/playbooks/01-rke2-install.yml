@@ -1,0 +1,14 @@
+---
+- name: Install RKE2 on master nodes
+  hosts: masters
+  become: true
+  serial: 1
+  roles:
+    - rke2
+
+- name: Install RKE2 on worker nodes
+  hosts: workers
+  become: true
+  serial: 3
+  roles:
+    - rke2

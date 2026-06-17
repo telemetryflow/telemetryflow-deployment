@@ -1,0 +1,43 @@
+---
+- name: Create redis directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_redis_data_dir }}"
+
+- name: Deploy redis docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_redis_compose_file }}"
+    mode: "0644"
+  notify: restart tfo redis
+
+- name: Pull redis image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_redis_image }}"
+    image: "{{ tfo_redis_image }}"
+  tags: [pull]
+
+- name: Start redis
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.redis.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]
+
+- name: Wait for redis to accept connections
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ tfo_redis_container_name }}
+      redis-cli -a {{ tfo_redis_password }} ping
+  register: _redis_ready
+  until: "'PONG' in _redis_ready.stdout"
+  retries: 15
+  delay: 2
+  changed_when: false
+  tags: [healthcheck]

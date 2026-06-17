@@ -1,0 +1,107 @@
+global:
+  environment: staging
+  clusterName: tfo-staging
+  timezone: Asia/Jakarta
+  domain: staging.telemetryflow.local
+  tls:
+    enabled: false
+  ingress:
+    enabled: true
+    className: nginx
+  podDisruptionBudget:
+    enabled: false
+
+tfoAgent:
+  image:
+    tag: "1.4.0"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+tfoCollector:
+  replicas: 1
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+tfoBackend:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  env:
+    NODE_ENV: staging
+  ingress:
+    enabled: true
+    host: api.staging.telemetryflow.local
+  initContainers:
+    seeds:
+      enabled: true
+
+tfoViz:
+  replicas: 1
+  ingress:
+    enabled: true
+    host: staging.telemetryflow.local
+
+postgresql:
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+clickhouse:
+  persistence:
+    size: 50Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+cacheRedis:
+  persistence:
+    size: 5Gi
+
+redisMaster:
+  persistence:
+    size: 10Gi
+
+nats:
+  persistence:
+    size: 10Gi
+
+secrets:
+  create: true
+  backend:
+    SESSION_SECRET: "<CHANGE_ME>"
+    JWT_SECRET: "<CHANGE_ME>"
+    ENCRYPTION_KEY: "<CHANGE_ME>"
+    ADMIN_PASSWORD: "<CHANGE_ME>"
+    SUPER_ADMIN_PASSWORD: "<CHANGE_ME>"
+  agent:
+    API_KEY: "<CHANGE_ME>"
+  database:
+    POSTGRES_PASSWORD: "<CHANGE_ME>"
+    CLICKHOUSE_PASSWORD: "<CHANGE_ME>"

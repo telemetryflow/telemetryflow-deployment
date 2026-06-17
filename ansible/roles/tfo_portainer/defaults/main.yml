@@ -1,0 +1,14 @@
+---
+tfo_portainer_image: "portainer/portainer-ce:latest"
+tfo_portainer_container_name: "telemetryflow_platform_portainer"
+tfo_portainer_restart_policy: "unless-stopped"
+tfo_portainer_log_max_size: "20m"
+tfo_portainer_log_max_file: "3"
+
+tfo_portainer_port: 9443
+tfo_portainer_http_port: 9000
+tfo_portainer_container_ip: "172.152.152.80"
+
+tfo_portainer_data_dir: "{{ tfo_platform_install_dir }}/data/portainer"
+
+tfo_portainer_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.portainer.yml"

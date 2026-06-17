@@ -1,0 +1,7 @@
+---
+tfo_agent_service_name: "tfo-agent"
+tfo_agent_install_dir: "/opt/telemetryflow-agent"
+tfo_agent_config_dir: "/etc/telemetryflow-agent"
+tfo_agent_log_dir: "/var/log/telemetryflow-agent"
+tfo_agent_user: "tfo-agent"
+tfo_agent_group: "tfo-agent"

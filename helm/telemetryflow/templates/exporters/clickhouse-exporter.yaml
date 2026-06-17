@@ -1,0 +1,96 @@
+{{- if and .Values.monitoring.exporters.clickhouse.enabled .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-clickhouse-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse-exporter
+      annotations:
+        checksum/values: {{ toYaml .Values.monitoring.exporters.clickhouse | sha256sum }}
+    spec:
+      containers:
+        - name: clickhouse-exporter
+          {{- include "telemetryflow.image" (dict "repository" .Values.monitoring.exporters.clickhouse.image.repository "tag" .Values.monitoring.exporters.clickhouse.image.tag "pullPolicy" .Values.monitoring.exporters.clickhouse.image.pullPolicy) | nindent 10 }}
+          env:
+            - name: CLICKHOUSE_DSN
+              value: "clickhouse://{{ include "telemetryflow.fullname" . }}-clickhouse:{{ .Values.clickhouse.ports.native.containerPort | default 9000 }}?database={{ .Values.clickhouse.env.CLICKHOUSE_DB }}&username={{ .Values.clickhouse.env.CLICKHOUSE_USER }}"
+          ports:
+            - name: metrics
+              containerPort: 9363
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.monitoring.exporters.clickhouse.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9363
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9363
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-clickhouse-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9363
+      targetPort: 9363
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-clickhouse-exporter
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse-exporter
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{ toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse-exporter
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+      honorLabels: {{ .Values.monitoring.serviceMonitor.honorLabels | default true }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "telemetryflow.namespace" . }}
+{{- end }}

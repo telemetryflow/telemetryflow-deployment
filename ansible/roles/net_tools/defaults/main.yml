@@ -1,0 +1,26 @@
+---
+net_tools_packages_debian:
+  - curl
+  - wget
+  - jq
+  - htop
+  - net-tools
+  - tcpdump
+  - strace
+  - lsof
+  - rsync
+  - unzip
+  - tar
+
+net_tools_packages_rhel:
+  - curl
+  - wget
+  - jq
+  - htop
+  - net-tools
+  - tcpdump
+  - strace
+  - lsof
+  - rsync
+  - unzip
+  - tar

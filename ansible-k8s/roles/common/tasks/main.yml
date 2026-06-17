@@ -1,0 +1,38 @@
+---
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Ensure common packages are installed
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+    update_cache: true
+  when: common_packages | length > 0
+
+- name: Ensure NTP synchronization
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+    state: present
+  notify: Restart timesyncd
+
+- name: Configure timesyncd
+  ansible.builtin.template:
+    src: timesyncd.conf.j2
+    dest: /etc/systemd/timesyncd.conf
+    mode: "0644"
+  notify: Restart timesyncd
+
+- name: Ensure timesyncd is running
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: started
+    enabled: true
+
+- name: Check minimum system requirements
+  ansible.builtin.assert:
+    that:
+      - ansible_memtotal_mb >= 2048
+      - ansible_processor_vcpus >= 2
+    fail_msg: "Node does not meet minimum requirements (2 CPU, 2GB RAM)"
+    quiet: true

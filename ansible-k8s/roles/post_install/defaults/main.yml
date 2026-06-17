@@ -1,0 +1,6 @@
+---
+node_labels:
+  - key: node-role.kubernetes.io/worker
+    value: "true"
+node_taints: []
+kubectl_timeout: 120

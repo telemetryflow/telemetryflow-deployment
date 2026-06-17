@@ -1,0 +1,17 @@
+---
+tfo_clickhouse_image: "clickhouse/clickhouse-server:24-alpine"
+tfo_clickhouse_container_name: "telemetryflow_platform_clickhouse"
+tfo_clickhouse_restart_policy: "unless-stopped"
+tfo_clickhouse_log_max_size: "50m"
+tfo_clickhouse_log_max_file: "5"
+
+tfo_clickhouse_http_port: 8123
+tfo_clickhouse_tcp_port: 9000
+tfo_clickhouse_user: "default"
+tfo_clickhouse_password: "<CHANGE_ME>"
+tfo_clickhouse_container_ip: "172.152.152.20"
+
+tfo_clickhouse_data_dir: "{{ tfo_platform_install_dir }}/data/clickhouse"
+tfo_clickhouse_logs_dir: "{{ tfo_platform_install_dir }}/data/clickhouse-logs"
+
+tfo_clickhouse_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.clickhouse.yml"

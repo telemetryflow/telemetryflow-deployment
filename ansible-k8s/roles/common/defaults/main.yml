@@ -1,0 +1,13 @@
+---
+common_packages:
+  - curl
+  - wget
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - nfs-common
+  - jq
+  - htop
+
+timezone: UTC

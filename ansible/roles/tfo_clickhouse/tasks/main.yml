@@ -1,0 +1,43 @@
+---
+- name: Create clickhouse directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_clickhouse_data_dir }}"
+    - "{{ tfo_clickhouse_logs_dir }}"
+
+- name: Deploy clickhouse docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_clickhouse_compose_file }}"
+    mode: "0644"
+  notify: restart tfo clickhouse
+
+- name: Pull clickhouse image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_clickhouse_image }}"
+    image: "{{ tfo_clickhouse_image }}"
+  tags: [pull]
+
+- name: Start clickhouse
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.clickhouse.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]
+
+- name: Wait for clickhouse to accept connections
+  ansible.builtin.uri:
+    url: "http://{{ tfo_clickhouse_container_ip }}:{{ tfo_clickhouse_http_port }}/ping"
+    method: GET
+    status_code: 200
+  register: _clickhouse_health
+  until: _clickhouse_health.status == 200
+  retries: 15
+  delay: 2
+  tags: [healthcheck]

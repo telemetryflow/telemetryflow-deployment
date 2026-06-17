@@ -1,0 +1,131 @@
+{{- if .Values.nats.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-nats
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  type: ClusterIP
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+      protocol: TCP
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-nats-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+      protocol: TCP
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+      protocol: TCP
+  selector:
+    {{- include "telemetryflow.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-nats
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  replicas: 1
+  serviceName: {{ include "telemetryflow.fullname" . }}-nats-headless
+  selector:
+    matchLabels:
+      {{- include "telemetryflow.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nats
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+        app.kubernetes.io/component: nats
+      annotations:
+        checksum/values: {{ toYaml .Values.nats | sha256sum }}
+    spec:
+      containers:
+        - name: nats
+          {{- include "telemetryflow.image" (dict "repository" .Values.nats.image.repository "tag" .Values.nats.image.tag "pullPolicy" .Values.nats.image.pullPolicy) | nindent 10 }}
+          command:
+            - nats-server
+            - --js
+            - --sd
+            - /data
+            - -m
+            - "8222"
+          env:
+            - name: TZ
+              value: {{ .Values.global.timezone | default "UTC" | quote }}
+          ports:
+            - name: client
+              containerPort: 4222
+              protocol: TCP
+            - name: monitor
+              containerPort: 8222
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  {{- if .Values.nats.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "telemetryflow.labels" . | nindent 10 }}
+          app.kubernetes.io/component: nats
+      spec:
+        accessModes:
+          - {{ .Values.nats.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if .Values.nats.persistence.storageClassName }}
+        storageClassName: {{ .Values.nats.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.nats.persistence.size }}
+  {{- end }}
+{{- end }}

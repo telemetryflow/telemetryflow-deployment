@@ -1,0 +1,47 @@
+{{- if and .Values.tfoAgent.enabled (dig "collectors" "kubernetes" "coredns_metrics" false .Values.tfoAgent.config) }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "telemetryflow.fullname" . }}-coredns-patch
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coredns-patch
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        {{- include "telemetryflow.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: coredns-patch
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.tfoAgent.serviceAccount.name | default (printf "%s-agent" (include "telemetryflow.fullname" .)) }}
+      containers:
+        - name: kubectl
+          image: bitnami/kubectl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Checking CoreDNS Corefile for prometheus plugin..."
+              COREFILE=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}')
+              if echo "$COREFILE" | grep -q "prometheus"; then
+                echo "Prometheus plugin already configured in CoreDNS. Skipping."
+                exit 0
+              fi
+              echo "Patching CoreDNS Corefile to add prometheus plugin..."
+              kubectl get configmap coredns -n kube-system -o yaml | \
+                sed '/^\. {$/a\    prometheus 0.0.0.0:9153' | \
+                kubectl apply -f -
+              echo "Restarting CoreDNS pods..."
+              kubectl rollout restart deployment coredns -n kube-system
+              kubectl rollout status deployment coredns -n kube-system --timeout=60s
+              echo "CoreDNS patch completed successfully."
+{{- end }}
