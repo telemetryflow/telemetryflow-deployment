@@ -23,7 +23,7 @@ tfoAgent:
   enabled: true
   image:
     repository: telemetryflow/telemetryflow-agent
-    tag: "1.2.0"
+    tag: "1.2.1"
     pullPolicy: "IfNotPresent"
   mode: daemonset
   hostNetwork: true
@@ -270,7 +270,7 @@ tfoBackend:
   enabled: true
   image:
     repository: telemetryflow/tfo-backend
-    tag: "1.4.0"
+    tag: "1.4.2"
     pullPolicy: "IfNotPresent"
   replicas: 1
   serviceAccount:
@@ -429,7 +429,7 @@ tfoBackend:
       enabled: true
       image:
         repository: telemetryflow/tfo-backend
-        tag: "1.4.0"
+        tag: "1.4.2"
         pullPolicy: ""
       command: |
         npm run db:migrate
@@ -437,7 +437,7 @@ tfoBackend:
       enabled: false
       image:
         repository: telemetryflow/tfo-backend
-        tag: "1.4.0"
+        tag: "1.4.2"
         pullPolicy: ""
       command: |
         npm run db:seed
@@ -446,7 +446,7 @@ tfoViz:
   enabled: true
   image:
     repository: telemetryflow/tfo-viz
-    tag: "1.4.0"
+    tag: "1.4.2"
     pullPolicy: "IfNotPresent"
   replicas: 1
   serviceAccount:

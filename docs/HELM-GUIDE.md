@@ -6,7 +6,7 @@ Detailed guide for deploying TelemetryFlow using the Helm chart with manifest-ba
 
 ```
 helm/telemetryflow/
-├── Chart.yaml                  # Chart metadata (v1.0.0, appVersion 1.4.0)
+├── Chart.yaml                  # Chart metadata (v1.0.0, appVersion 1.4.2)
 ├── values.yaml                 # Base default configuration
 ├── manifest/                   # Per-environment overlay files
 │   ├── tfo-staging.yaml        # Staging (on-prem / RKE2)
@@ -214,7 +214,7 @@ EKS manifest overlays add AWS-specific settings on top of the base chart:
 | `tfoAgent.hostNetwork`               | `true`                    | Use host network namespace       |
 | `tfoAgent.hostPID`                   | `true`                    | Use host PID namespace           |
 | `tfoAgent.image.repository`          | `telemetryflow/tfo-agent` | Agent image                      |
-| `tfoAgent.image.tag`                 | `1.4.0`                   | Agent version                    |
+| `tfoAgent.image.tag`                 | `1.2.1`                   | Agent version                    |
 | `tfoAgent.resources.requests.cpu`    | `100m`                    | CPU request                      |
 | `tfoAgent.resources.requests.memory` | `128Mi`                   | Memory request                   |
 | `tfoAgent.resources.limits.cpu`      | `500m`                    | CPU limit                        |
@@ -228,7 +228,7 @@ EKS manifest overlays add AWS-specific settings on top of the base chart:
 | `tfoCollector.mode`                                          | `deployment`                      | Deployment mode         |
 | `tfoCollector.replicas`                                      | `1`                               | Number of replicas      |
 | `tfoCollector.image.repository`                              | `telemetryflow/tfo-collector`     | Collector image         |
-| `tfoCollector.image.tag`                                     | `1.4.0`                           | Collector version       |
+| `tfoCollector.image.tag`                                     | `1.2.1`                           | Collector version       |
 | `tfoCollector.config.receivers.otlp.protocols.grpc.endpoint` | `0.0.0.0:4317`                    | OTLP gRPC endpoint      |
 | `tfoCollector.config.receivers.otlp.protocols.http.endpoint` | `0.0.0.0:4318`                    | OTLP HTTP endpoint      |
 | `tfoCollector.config.exporters.otlphttp.endpoint`            | `http://tfo-backend:8080/v1/otlp` | Backend export endpoint |
@@ -242,7 +242,7 @@ EKS manifest overlays add AWS-specific settings on top of the base chart:
 | `tfoBackend.enabled`                             | `true`                                 | Deploy the backend   |
 | `tfoBackend.replicas`                            | `1`                                    | Number of replicas   |
 | `tfoBackend.image.repository`                    | `telemetryflow/tfo-backend`            | Backend image        |
-| `tfoBackend.image.tag`                           | `1.4.0`                                | Backend version      |
+| `tfoBackend.image.tag`                           | `1.4.2`                                | Backend version      |
 | `tfoBackend.ports.http.containerPort`            | `8080`                                 | HTTP API port        |
 | `tfoBackend.ports.grpc.containerPort`            | `4317`                                 | gRPC port            |
 | `tfoBackend.env.DB_HOST`                         | `{{ .Release.Name }}-postgresql`       | PostgreSQL host      |

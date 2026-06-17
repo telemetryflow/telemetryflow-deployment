@@ -8,10 +8,10 @@ metadata:
     app.kubernetes.io/name: telemetryflow
     app.kubernetes.io/instance: telemetryflow-sample
 spec:
-  version: "1.4.0"
+  version: "1.4.2"
 
   backend:
-    image: "telemetryflow/tfo-backend:1.4.0"
+    image: "telemetryflow/tfo-backend:1.4.2"
     replicas: 2
     resources:
       requests:
@@ -30,7 +30,7 @@ spec:
         value: "8080"
 
   frontend:
-    image: "telemetryflow/tfo-viz:1.4.0"
+    image: "telemetryflow/tfo-viz:1.4.2"
     replicas: 2
     resources:
       requests:

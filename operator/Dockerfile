@@ -34,7 +34,7 @@ FROM alpine:3.21
 # =============================================================================
 LABEL org.opencontainers.image.title="TelemetryFlow Operator"
 LABEL org.opencontainers.image.description="TelemetryFlow Platform Observability - Kubernetes Operator for managing TelemetryFlow deployments"
-LABEL org.opencontainers.image.version="1.4.0"
+LABEL org.opencontainers.image.version="1.4.2"
 LABEL org.opencontainers.image.vendor="Telemetri Data Indonesia"
 LABEL org.opencontainers.image.authors="TelemetryFlow <support@telemetryflow.id>"
 LABEL org.opencontainers.image.url="https://telemetryflow.id"

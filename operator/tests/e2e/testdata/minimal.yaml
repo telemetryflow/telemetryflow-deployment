@@ -4,7 +4,7 @@ metadata:
   name: e2e-test
   namespace: default
 spec:
-  version: "1.4.0"
+  version: "1.4.2"
   postgresql:
     image: "postgres:16-alpine"
     replicas: 1

@@ -369,7 +369,7 @@ ansible-playbook playbooks/03-deploy-telemetryflow.yml \
 ```bash
 # VM — redeploy previous version
 ansible-playbook ansible/playbooks/deploy-backend.yml -i ansible/inventory.yml \
-  -e "tfo_backend_version=1.4.0"
+  -e "tfo_backend_version=1.4.2"
 
 # K8s — Helm rollback
 helm rollback telemetryflow <REVISION> -n telemetryflow

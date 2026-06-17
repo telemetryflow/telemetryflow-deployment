@@ -7,7 +7,7 @@
 
   <h3>TelemetryFlow Deployment</h3>
 
-[![Version](https://img.shields.io/badge/Version-1.4.0-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.4.2-orange.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](https://hub.docker.com/r/telemetryflow/telemetryflow-platform)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&style=flat-square)](https://go.dev/)
@@ -34,7 +34,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - 2026-05-31
+## [1.4.2] - 2026-06-17
 
 ### Added
 
@@ -90,6 +90,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker Compose configuration for local development.
 - Makefile with automation targets for all deployment methods.
 - Contributing guide, security policy, and code of conduct.
+- CI/CD pipelines for automated testing and deployment.
 
-[1.4.0]: https://github.com/telemetryflow/telemetryflow-deployment/releases/tag/v1.4.0
-[1.0.0]: https://github.com/telemetryflow/telemetryflow-deployment/releases/tag/v1.0.0
+### Changed
+
+- Updated project structure and documentation to match best practices.
+- Improved code quality and readability.
+- Fixed bugs and issues reported by users.
+
+### Removed
+
+- Deprecated features and components.
+- Unused code and documentation.
+
+## [0.1.0] - 2026-05-30
+
+### Added
+
+- Initial version of TelemetryFlow observability platform.
+- Basic deployment templates for VM and Kubernetes.
+- Documentation for installation and usage.
+- Basic monitoring and logging capabilities.
+
+### Changed
+
+- Improved performance and scalability.

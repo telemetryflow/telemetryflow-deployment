@@ -86,16 +86,16 @@ stateDiagram-v2
 | ----------------------------------- | ------ | -------- | ----------------------------------- | -------------------------- |
 | `spec.backend.enabled`              | bool   | no       | `true`                              | Deploy TFO Backend         |
 | `spec.backend.replicas`             | int    | no       | `1`                                 | Backend replicas           |
-| `spec.backend.image`                | string | no       | `telemetryflow/tfo-backend:1.4.0`   | Backend image              |
+| `spec.backend.image`                | string | no       | `telemetryflow/tfo-backend:1.4.2`   | Backend image              |
 | `spec.backend.resources`            | object | no       | —                                   | Resource requests/limits   |
 | `spec.collector.enabled`            | bool   | no       | `true`                              | Deploy TFO Collector       |
 | `spec.collector.replicas`           | int    | no       | `1`                                 | Collector replicas         |
-| `spec.collector.image`              | string | no       | `telemetryflow/tfo-collector:1.4.0` | Collector image            |
+| `spec.collector.image`              | string | no       | `telemetryflow/tfo-collector:1.4.2` | Collector image            |
 | `spec.agent.enabled`                | bool   | no       | `true`                              | Deploy TFO Agent DaemonSet |
-| `spec.agent.image`                  | string | no       | `telemetryflow/tfo-agent:1.4.0`     | Agent image                |
+| `spec.agent.image`                  | string | no       | `telemetryflow/tfo-agent:1.4.2`     | Agent image                |
 | `spec.viz.enabled`                  | bool   | no       | `true`                              | Deploy TFO Viz frontend    |
 | `spec.viz.replicas`                 | int    | no       | `1`                                 | Frontend replicas          |
-| `spec.viz.image`                    | string | no       | `telemetryflow/tfo-viz:1.4.0`       | Frontend image             |
+| `spec.viz.image`                    | string | no       | `telemetryflow/tfo-viz:1.4.2`       | Frontend image             |
 | `spec.postgresql.enabled`           | bool   | no       | `true`                              | Deploy PostgreSQL          |
 | `spec.clickhouse.enabled`           | bool   | no       | `true`                              | Deploy ClickHouse          |
 | `spec.redis.enabled`                | bool   | no       | `true`                              | Deploy Redis cache         |
@@ -202,7 +202,7 @@ spec:
   backend:
     enabled: true
     replicas: 3
-    image: "telemetryflow/tfo-backend:1.4.0"
+    image: "telemetryflow/tfo-backend:1.4.2"
     resources:
       requests:
         cpu: "1"

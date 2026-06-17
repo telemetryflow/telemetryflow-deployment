@@ -73,7 +73,7 @@ export KUBECONFIG=/path/to/kubeconfig
 make install
 
 # Deploy operator
-make deploy IMG=your-registry/telemetryflow/operator:v1.4.0
+make deploy IMG=your-registry/telemetryflow/operator:v1.4.2
 
 # Run e2e tests
 make test-e2e
