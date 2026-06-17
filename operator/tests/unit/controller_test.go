@@ -145,7 +145,7 @@ func TestReconcileAllComponents(t *testing.T) {
 				Namespace: namespace,
 			},
 			Spec: telemetryflowv1alpha1.TelemetryFlowSpec{
-				Version: "1.4.0",
+				Version: "1.4.2",
 				PostgreSQL: telemetryflowv1alpha1.DatabaseSpec{
 					Image:    "postgres:16-alpine",
 					Replicas: 1,
@@ -401,7 +401,7 @@ func TestReconcileMinimalDeployment(t *testing.T) {
 				Namespace: namespace,
 			},
 			Spec: telemetryflowv1alpha1.TelemetryFlowSpec{
-				Version: "1.4.0",
+				Version: "1.4.2",
 				PostgreSQL: telemetryflowv1alpha1.DatabaseSpec{
 					Image:    "postgres:16-alpine",
 					Replicas: 1,
@@ -472,7 +472,7 @@ func TestReconcileUpdateReplicas(t *testing.T) {
 				Namespace: namespace,
 			},
 			Spec: telemetryflowv1alpha1.TelemetryFlowSpec{
-				Version: "1.4.0",
+				Version: "1.4.2",
 				PostgreSQL: telemetryflowv1alpha1.DatabaseSpec{
 					Image:    "postgres:16-alpine",
 					Replicas: 1,

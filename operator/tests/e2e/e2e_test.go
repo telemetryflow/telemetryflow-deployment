@@ -40,7 +40,7 @@ var _ = Describe("TelemetryFlow Operator E2E", func() {
 					Namespace: e2eNamespace,
 				},
 				Spec: telemetryflowv1alpha1.TelemetryFlowSpec{
-					Version: "1.4.0",
+					Version: "1.4.2",
 					PostgreSQL: telemetryflowv1alpha1.DatabaseSpec{
 						Image:    "postgres:16-alpine",
 						Replicas: 1,
@@ -219,7 +219,7 @@ var _ = Describe("TelemetryFlow Operator E2E", func() {
 					Namespace: e2eNamespace,
 				},
 				Spec: telemetryflowv1alpha1.TelemetryFlowSpec{
-					Version: "1.4.0",
+					Version: "1.4.2",
 					PostgreSQL: telemetryflowv1alpha1.DatabaseSpec{
 						Image:    "postgres:16-alpine",
 						Replicas: 1,
@@ -285,7 +285,7 @@ var _ = Describe("TelemetryFlow Operator E2E", func() {
 					Namespace: e2eNamespace,
 				},
 				Spec: telemetryflowv1alpha1.TelemetryFlowSpec{
-					Version: "1.4.0",
+					Version: "1.4.2",
 					PostgreSQL: telemetryflowv1alpha1.DatabaseSpec{
 						Image:    "postgres:16-alpine",
 						Replicas: 1,
@@ -366,7 +366,7 @@ var _ = Describe("TelemetryFlow Operator E2E", func() {
 					Namespace: e2eNamespace,
 				},
 				Spec: telemetryflowv1alpha1.TelemetryFlowSpec{
-					Version: "1.4.0",
+					Version: "1.4.2",
 					PostgreSQL: telemetryflowv1alpha1.DatabaseSpec{
 						Image:    "postgres:16-alpine",
 						Replicas: 1,
