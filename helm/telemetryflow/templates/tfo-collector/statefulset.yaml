@@ -95,12 +95,12 @@ spec:
             - name: TELEMETRYFLOW_API_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" . }}-agent-secrets
+                  name: {{ include "telemetryflow.fullname" . }}-agent-secret
                   key: API_KEY_ID
             - name: TELEMETRYFLOW_API_KEY_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" . }}-agent-secrets
+                  name: {{ include "telemetryflow.fullname" . }}-agent-secret
                   key: API_KEY
           {{- range .Values.tfoCollector.envFromSecrets }}
             - name: {{ .envName }}

@@ -85,7 +85,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "telemetryflow-operator.telemetryflow.io",
+		LeaderElectionID:       "telemetryflow-operator.telemetryflow.id",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

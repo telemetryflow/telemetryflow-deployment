@@ -1,0 +1,26 @@
+# =============================================================================
+# Infracost usage estimates — _tfstate stack (S3 + DynamoDB)
+# =============================================================================
+# Usage-based resource estimates so Infracost can price variable resources.
+# Docs: https://www.infracost.io/docs/usage_based_resources
+# Adjust the values below to match your real usage.
+# =============================================================================
+
+version: 0.1
+
+resource_usage:
+  # ── S3 state bucket ─────────────────────────────────────────────
+  # ~1 MB of state per stack; lifecycle keeps non-current versions.
+  module.tfstate.aws_s3_bucket.tfstate:
+    object_storage_gb: 1
+    monthly_standard_and_intelligent_tiering_requests: 1000
+    monthly_tier_1_request_count: 1000      # PUT/COPY/POST/LIST
+    monthly_tier_2_request_count: 10000     # GET/SELECT
+    monthly_data_retrieval_gb: 1
+
+  # ── DynamoDB lock table ─────────────────────────────────────────
+  # PAY_PER_REQUEST; only written during terraform runs (~100 runs/month).
+  module.tfstate.aws_dynamodb_table.tfstate_lock:
+    monthly_write_request_units: 1000
+    monthly_read_request_units: 1000
+    storage_gb: 1

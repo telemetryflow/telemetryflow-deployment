@@ -22,7 +22,7 @@ global:
 
 tfoAgent:
   image:
-    tag: "1.4.2"
+    tag: "1.2.1"
   resources:
     requests:
       cpu: 100m
@@ -66,11 +66,15 @@ tfoBackend:
   env:
     NODE_ENV: production
     LOG_LEVEL: warn
-    API_RATE_LIMIT_MAX: "500"
-    API_RATE_LIMIT_WINDOW_MS: "60000"
-    DB_POOL_MIN: "5"
-    DB_POOL_MAX: "25"
-    CLICKHOUSE_TTL_DAYS: "90"
+    CORS_ORIGIN: https://telemetryflow.local
+    THROTTLE_LIMIT: "500"
+    THROTTLE_TTL: "60000"
+    THROTTLE_INGESTION_LIMIT: "5000"
+    THROTTLE_INGESTION_TTL: "60000"
+    DATABASE_POOL_SIZE: "25"
+    TELEMETRY_METRICS_RETENTION_DAYS: "90"
+    TELEMETRY_LOGS_RETENTION_DAYS: "30"
+    TELEMETRY_TRACES_RETENTION_DAYS: "14"
   ingress:
     enabled: true
     className: nginx

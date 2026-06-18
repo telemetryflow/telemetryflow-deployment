@@ -1,0 +1,46 @@
+# =============================================================================
+# Infracost usage estimates — tfo-ec2 stack (VPC + node pools + optional NAT)
+# =============================================================================
+# Usage-based resource estimates so Infracost can price variable resources.
+# Docs: https://www.infracost.io/docs/usage_based_resources
+# Adjust the values below to match your real usage.
+#
+# Default topology (from node_pools in terraform.tfvars):
+#   tfo-master-01  → t3.medium   30 GB gp3   (control plane)
+#   tfo-worker-01  → m5.xlarge  100 GB gp3   (workload)
+#   tfo-worker-02  → m5.xlarge  100 GB gp3   (workload)
+#
+# EC2 nodes run 24/7 (730 hours/month) — Infracost prices this automatically.
+# Instance type, root volume size/type/iops are read from Terraform config.
+# Only the NAT GW data + any extra EBS need usage hints.
+#
+# When node_pools change (add/remove pools or change counts), update the
+# resource addresses below to match the for_each keys: "{pool}-{NN}".
+# =============================================================================
+
+version: 0.1
+
+resource_usage:
+  # ── NAT Gateway (only created when enable_nat=true) ─────────────
+  # Estimate ~1 TB/month egress for a 3-node cluster pulling images.
+  module.network.aws_nat_gateway.ec2_ngw[0]:
+    monthly_data_processed_gb: 1000
+
+  # ── EBS root volumes (per node pool) ────────────────────────────
+  # gp3 baseline (3000 IOPS + 125 MB/s) is included; extra IOPS/throughput
+  # is priced automatically from root_block_device config.
+  # Workers have 6000 IOPS + 250 MB/s (above baseline → priced extra).
+
+  # Master node — 30 GB gp3
+  module.compute.aws_instance.main["master-01"]:
+    storage_gb: 30
+
+  # Worker nodes — 100 GB gp3 each
+  module.compute.aws_instance.main["worker-01"]:
+    storage_gb: 100
+  module.compute.aws_instance.main["worker-02"]:
+    storage_gb: 100
+
+  # ── Optional 3rd worker (uncomment when node_pools.worker.count=3) ──
+  # module.compute.aws_instance.main["worker-03"]:
+  #   storage_gb: 100

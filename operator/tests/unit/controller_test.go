@@ -346,7 +346,7 @@ func TestReconcileAllComponents(t *testing.T) {
 			fetched := &telemetryflowv1alpha1.TelemetryFlow{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, fetched)
 			require.NoError(t, err)
-			assert.Contains(t, fetched.Finalizers, "telemetryflow.io/finalizer")
+			assert.Contains(t, fetched.Finalizers, "telemetryflow.id/finalizer")
 		})
 
 		t.Run("Component_statuses_populated", func(t *testing.T) {

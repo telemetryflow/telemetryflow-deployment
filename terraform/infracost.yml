@@ -1,0 +1,30 @@
+# =============================================================================
+# Infracost multi-project config
+# =============================================================================
+# Estimates cloud costs for both TelemetryFlow Terraform stacks.
+# Docs: https://www.infracost.io/docs/multi_project/config_file
+#
+# Usage:
+#   infracost breakdown --config-file infracost.yml --format table
+#   infracost breakdown --config-file infracost.yml --format json --out-file infracost.json
+#
+# Requires INFRACOST_API_KEY (free at https://dashboard.infracost.io):
+#   infracost auth login
+# =============================================================================
+
+version: 0.1
+
+projects:
+  # ── Stack 1: TFState backend (S3 + DynamoDB) ───────────────────
+  - name: tfstate-backend
+    path: environment/telemetryflow/_tfstate
+    usage_file: infracost-usage-tfstate.yml
+
+  # ── Stack 2: EC2 cluster (VPC + IGW + NAT + master/workers) ────
+  - name: tfo-ec2-cluster
+    path: environment/telemetryflow/tfo-ec2
+    usage_file: infracost-usage-tfo-ec2.yml
+
+  # ── Stack 3: AWS Cost Budgets (free — no usage file needed) ─────
+  - name: tfo-budget
+    path: environment/telemetryflow/tfo-budget

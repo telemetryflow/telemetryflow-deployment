@@ -1,0 +1,143 @@
+# ==========================================================================
+#  TelemetryFlow - TFO EC2: terraform.tfvars.example
+# --------------------------------------------------------------------------
+#  Copy to terraform.tfvars and edit for your AWS account.
+#  NOTE: *.tfvars is gitignored - never commit real account IDs / IPs.
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+#  AWS Account / Region
+# --------------------------------------------------------------------------
+aws_region                      = "ap-southeast-3"
+aws_account_id_destination      = "112233445566"
+aws_account_profile_destination = "TFO-TF-User-Executor"
+
+# --------------------------------------------------------------------------
+#  Tags
+# --------------------------------------------------------------------------
+department = "DEVOPS"
+
+# --------------------------------------------------------------------------
+#  Workspace -> Environment mapping (keep in sync with _tfstate stack)
+# --------------------------------------------------------------------------
+workspace_env = {
+  default = "default"
+  lab     = "rnd"
+  staging = "staging"
+  prod    = "prod"
+}
+
+environment = {
+  default = "DEF"
+  lab     = "RND"
+  staging = "STG"
+  prod    = "PROD"
+}
+
+# --------------------------------------------------------------------------
+#  Remote State Backend references (must match the _tfstate stack outputs)
+# --------------------------------------------------------------------------
+tfstate_bucket         = "tfo-tf-state-112233445566-ap-southeast-3"
+tfstate_dynamodb_table = "tfo-ddb-tf-state-112233445566-ap-southeast-3"
+tfstate_path           = "telemetryflow/112233445566/tfstate/terraform.tfstate"
+
+# --------------------------------------------------------------------------
+#  Compute — Node Pools (master + workers, all placed in zone-a)
+# --------------------------------------------------------------------------
+prefix_name = "tfo"
+ami_os      = "ubuntu"       # or: "amazon_linux_2023"
+
+# Each pool controls: count, instance type, role, and root EBS storage.
+# Set worker count to 3 for a 4-node cluster.
+node_pools = {
+  master = {
+    count                  = 1
+    instance_type          = "t3.medium"
+    role                   = "master"
+    root_volume_size       = 30
+    root_volume_type       = "gp3"
+    root_volume_iops       = 3000
+    root_volume_throughput = 125
+  }
+  worker = {
+    count                  = 2
+    instance_type          = "m5.xlarge"
+    role                   = "worker"
+    root_volume_size       = 100
+    root_volume_type       = "gp3"
+    root_volume_iops       = 6000
+    root_volume_throughput = 250
+  }
+}
+
+key_pair_name           = "tfo-ssh-key"
+enable_access_public_ip = true           # false -> nodes go to private subnet
+create_instance_connect = true
+use_spot_instances      = false
+
+# --------------------------------------------------------------------------
+#  Network (multi-AZ a/b/c; nodes deploy to zone-a)
+# --------------------------------------------------------------------------
+enable_nat = false   # true -> single NAT GW (zone-a) serves private a/b/c
+
+# --------------------------------------------------------------------------
+#  RKE2 Security Group (on by default — required for RKE2/Rancher)
+# --------------------------------------------------------------------------
+create_rke2_sg        = true
+# Add your office/workstation CIDR to reach `kubectl` (6443) from outside:
+rke2_api_access_cidrs = []
+# rke2_api_access_cidrs = ["203.0.113.10/32"]
+
+# --------------------------------------------------------------------------
+#  VPC + Subnet CIDRs (per workspace)
+# --------------------------------------------------------------------------
+coreinfra = "core-ec2-tf"
+ec2_prefix     = "ec2"
+nat_ec2_prefix = "natgw-ec2"
+ec2_rt_prefix  = "ec2-rt"
+igw_prefix     = "igw"
+
+vpc_cidr = {
+  default = "10.40.0.0/16"
+  lab     = "10.40.0.0/16"
+  staging = "10.41.0.0/16"
+  prod    = "10.42.0.0/16"
+}
+
+ec2_private_a = {
+  default = "10.40.64.0/21"
+  lab     = "10.40.64.0/21"
+  staging = "10.41.64.0/21"
+  prod    = "10.42.64.0/21"
+}
+ec2_private_b = {
+  default = "10.40.72.0/21"
+  lab     = "10.40.72.0/21"
+  staging = "10.41.72.0/21"
+  prod    = "10.42.72.0/21"
+}
+ec2_private_c = {
+  default = "10.40.80.0/21"
+  lab     = "10.40.80.0/21"
+  staging = "10.41.80.0/21"
+  prod    = "10.42.80.0/21"
+}
+
+ec2_public_a = {
+  default = "10.40.88.0/21"
+  lab     = "10.40.88.0/21"
+  staging = "10.41.88.0/21"
+  prod    = "10.42.88.0/21"
+}
+ec2_public_b = {
+  default = "10.40.96.0/21"
+  lab     = "10.40.96.0/21"
+  staging = "10.41.96.0/21"
+  prod    = "10.42.96.0/21"
+}
+ec2_public_c = {
+  default = "10.40.104.0/21"
+  lab     = "10.40.104.0/21"
+  staging = "10.41.104.0/21"
+  prod    = "10.42.104.0/21"
+}

@@ -233,7 +233,7 @@ tfoCollector:
               threshold_ms: 1000
     exporters:
       otlphttp:
-        endpoint: "http://tfo-backend:8080/v1/otlp"
+        endpoint: "http://tfo-backend:3000/v1/otlp"
         sending_queue:
           enabled: true
           num_consumers: 10
@@ -293,7 +293,7 @@ tfoBackend:
       memory: 1Gi
   ports:
     http:
-      containerPort: 8080
+      containerPort: 3000
       protocol: TCP
     grpc:
       containerPort: 4317
@@ -311,47 +311,212 @@ tfoBackend:
     path: /
     pathType: Prefix
   env:
+    # [1] Application Configuration
+    APP_NAME: TelemetryFlow
     NODE_ENV: production
-    PORT: "8080"
-    GRPC_PORT: "4317"
+    PORT: "3000"
     LOG_LEVEL: info
     TZ: UTC
-    API_RATE_LIMIT_MAX: "100"
-    API_RATE_LIMIT_WINDOW_MS: "60000"
-    HEALTH_CHECK_INTERVAL_MS: "30000"
-    SHUTDOWN_TIMEOUT_MS: "10000"
-    DB_HOST: "{{ .Release.Name }}-postgresql"
-    DB_PORT: "5432"
-    DB_NAME: telemetryflow
-    DB_USER: telemetryflow
-    DB_SSL: "false"
-    DB_POOL_MIN: "2"
-    DB_POOL_MAX: "10"
-    REDIS_CACHE_HOST: "{{ .Release.Name }}-cache-redis"
-    REDIS_CACHE_PORT: "6379"
-    REDIS_CACHE_DB: "0"
-    REDIS_CACHE_TTL: "3600"
-    REDIS_BULL_HOST: "{{ .Release.Name }}-redis-master"
-    REDIS_BULL_PORT: "6379"
-    REDIS_BULL_DB: "0"
-    NATS_URL: "nats://{{ .Release.Name }}-nats:4222"
-    NATS_CLUSTER: telemetryflow
+    CORS_ORIGIN: "*"
+    MAIN_DOMAIN: telemetryflow.id
+    DEMO_DOMAIN: demo.telemetryflow.id
+    VERSION: "1.4.2"
+    # [2] Frontend - Application Settings
+    TELEMETRYFLOW_BASE_URL: /
+    TELEMETRYFLOW_APP_TITLE: TelemetryFlow
+    TELEMETRYFLOW_APP_CODE: TFO-Viz
+    TELEMETRYFLOW_USE_MOCK: "false"
+    TELEMETRYFLOW_REFRESH_INTERVAL: "5000"
+    TELEMETRYFLOW_ENABLE_CACHE: "true"
+    TELEMETRYFLOW_CACHE_TTL: "300000"
+    # [3] Frontend - API Endpoints
+    TELEMETRYFLOW_API_URL: http://{{ .Release.Name }}-tfo-backend:3000
+    TELEMETRYFLOW_IAM_API_URL: http://{{ .Release.Name }}-tfo-backend:3000
+    TELEMETRYFLOW_GRPC_URL: http://{{ .Release.Name }}-tfo-collector:4317
+    TELEMETRYFLOW_WS_URL: ws://{{ .Release.Name }}-tfo-collector:4319
+    TELEMETRYFLOW_OTLP_ENDPOINT: http://{{ .Release.Name }}-tfo-collector:4318
+    TELEMETRYFLOW_ENDPOINT: http://{{ .Release.Name }}-tfo-collector:4318
+    DATATABLE_MAX_ROWS: "5000"
+    TELEMETRYFLOW_LIMIT_DATA: "5000"
+    TELEMETRYFLOW_LIMIT_DATA_MAX: "100000"
+    TELEMETRYFLOW_SCAN_LIMIT_DATA: "5000000"
+    GITHUB_REPOSITORY_URL: https://github.com/telemetryflow/telemetryflow-platform
+    # [4] Frontend - Authentication & SSO
+    TELEMETRYFLOW_API_KEY_ID: tfk_cd370b538e591cb26f69de626aecb95e
+    TELEMETRYFLOW_API_KEY_HEADER: x-api-key
+    TELEMETRYFLOW_VIZ_USERNAME: demo.telemetryflow
+    TELEMETRYFLOW_VIZ_EMAIL: demo.telemetryflow@telemetryflow.id
+    TELEMETRYFLOW_SSO_GOOGLE: "false"
+    TELEMETRYFLOW_SSO_MICROSOFT: "false"
+    TELEMETRYFLOW_SSO_APPLE: "false"
+    TELEMETRYFLOW_SSO_SLACK: "false"
+    TELEMETRYFLOW_SSO_COGNITO: "false"
+    TELEMETRYFLOW_SSO_GITHUB: "false"
+    TELEMETRYFLOW_RECAPTCHA_SITE_KEY: ""
+    RECAPTCHA_MIN_SCORE: "0.5"
+    # [5] Frontend - White Label / Branding
+    TELEMETRYFLOW_BRAND_NAME: TelemetryFlow Observability
+    TELEMETRYFLOW_BRAND_TAGLINE: AI-Powered Observability Platform
+    TELEMETRYFLOW_DOMAIN: demo.telemetryflow.id
+    TELEMETRYFLOW_GITHUB_URL: https://github.com/telemetryflow/overview
+    TELEMETRYFLOW_LOGO_LIGHT: src/assets/tfo-logo-light.svg
+    TELEMETRYFLOW_LOGO_DARK: src/assets/tfo-logo-dark.svg
+    TELEMETRYFLOW_LOGO_ICON: src/assets/favicon.svg
+    TELEMETRYFLOW_LOGO_WIDTH: 180px
+    TELEMETRYFLOW_LOGO_HEIGHT: auto
+    TELEMETRYFLOW_COPYRIGHT_COMPANY: TelemetryFlow
+    TELEMETRYFLOW_COPYRIGHT_YEAR: "2026"
+    TELEMETRYFLOW_SHOW_POWERED_BY: "false"
+    TELEMETRYFLOW_LINK_WEBSITE: https://telemetryflow.id
+    TELEMETRYFLOW_LINK_DOCS: https://docs.telemetryflow.id
+    TELEMETRYFLOW_LINK_SUPPORT: https://support.telemetryflow.id
+    # [6] Backend - Logging Configuration
+    LOGGER_TYPE: winston
+    LOG_PRETTY_PRINT: "false"
+    LOG_FORMAT: json
+    LOG_COLORIZE: "false"
+    LOG_SKIP_PATHS: /health,/metrics,/healthz,/ready
+    OTEL_LOGS_ENABLED: "false"
+    LOG_FILE_ENABLED: "false"
+    LOG_FILE_DIRNAME: logs
+    LOG_FILE_FILENAME: app-%DATE%.log
+    LOG_FILE_DATE_PATTERN: YYYY-MM-DD
+    LOG_FILE_ZIPPED: "true"
+    LOG_FILE_MAX_SIZE: 20m
+    LOG_FILE_MAX_FILES: 14d
+    LOG_FILE_JSON: "true"
+    FLUENTBIT_ENABLED: "false"
+    FLUENTBIT_HOST: fluentbit
+    FLUENTBIT_PORT: "24224"
+    FLUENTBIT_TAG: telemetryflow.logs
+    CLICKHOUSE_LOGS_ENABLED: "false"
+    CLICKHOUSE_LOGS_TABLE: logs
+    CLICKHOUSE_LOGS_DEFAULT_ORG_ID: DEVOPSCORNER
+    CLICKHOUSE_LOGS_SERVICE_NAME: telemetryflow-platform
+    CLICKHOUSE_FLUSH_INTERVAL: "5000"
+    CLICKHOUSE_BUFFER_LIMIT: "2000"
+    CLICKHOUSE_REQUEST_TIMEOUT: "120"
+    # [7] Backend - OpenTelemetry Configuration
+    OTEL_ENABLED: "true"
+    OTEL_SERVICE_NAME: telemetryflow-platform
+    SERVICE_VERSION: "1.4.2"
+    SERVICE_NAMESPACE: telemetryflow
+    SERVICE_TEAM: platform
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://{{ .Release.Name }}-tfo-collector:4318
+    OTEL_COLLECTOR_ENDPOINT: http://{{ .Release.Name }}-tfo-collector:4318
+    TELEMETRYFLOW_BACKEND_OTLP_ENDPOINT: http://{{ .Release.Name }}-tfo-backend:3000
+    TELEMETRYFLOW_BACKEND_ENDPOINT: http://{{ .Release.Name }}-tfo-backend:3000/api/v2
+    OTEL_COLLECTOR_HEALTH_URL: http://{{ .Release.Name }}-tfo-collector:13133
+    # [8] Backend - Telemetry Data Configuration
+    TELEMETRY_METRICS_RETENTION_DAYS: "15"
+    TELEMETRY_LOGS_RETENTION_DAYS: "15"
+    TELEMETRY_TRACES_RETENTION_DAYS: "15"
+    TELEMETRY_AGGREGATION_ENABLED: "true"
+    TELEMETRY_AGGREGATION_INTERVALS: 1m,5m,15m,1h,1d
+    TELEMETRY_BATCH_SIZE: "2000"
+    TELEMETRY_FLUSH_INTERVAL: "5000"
+    TELEMETRY_REALTIME_TYPES: metrics
+    AGENT_HEARTBEAT_INTERVAL: "30"
+    AGENT_INACTIVE_THRESHOLD: "10"
+    AGENT_CLEANUP_DAYS: "30"
+    UPTIME_CHECKER_INTERVAL_MS: "30000"
+    # [9] Backend - PostgreSQL Configuration
+    POSTGRES_HOST: "{{ .Release.Name }}-postgresql"
+    POSTGRES_PORT: "5432"
+    POSTGRES_DB: telemetryflow_db
+    POSTGRES_USER: postgres
+    POSTGRES_USERNAME: postgres
+    DATABASE_HOST: "{{ .Release.Name }}-postgresql"
+    DATABASE_PORT: "5432"
+    DATABASE_NAME: telemetryflow_db
+    DATABASE_USERNAME: postgres
+    DATABASE_SSL: "false"
+    DATABASE_POOL_SIZE: "10"
+    DATABASE_LOGGING: "false"
+    # [10] Backend - ClickHouse Configuration
     CLICKHOUSE_HOST: "{{ .Release.Name }}-clickhouse"
     CLICKHOUSE_PORT: "8123"
+    CLICKHOUSE_HTTP_PORT: "8123"
     CLICKHOUSE_NATIVE_PORT: "9000"
-    CLICKHOUSE_USER: default
-    CLICKHOUSE_DATABASE: telemetryflow
-    CLICKHOUSE_CLUSTER: telemetryflow
-    CLICKHOUSE_TTL_DAYS: "30"
-    SESSION_SECRET: "<CHANGE_ME>"
-    JWT_SECRET: "<CHANGE_ME>"
-    ENCRYPTION_KEY: "<CHANGE_ME>"
-    ADMIN_EMAIL: admin@telemetryflow.local
-    ADMIN_PASSWORD: "<CHANGE_ME>"
-    SUPER_ADMIN_EMAIL: superadmin@telemetryflow.local
-    SUPER_ADMIN_PASSWORD: "<CHANGE_ME>"
-    DEFAULT_ORG_NAME: "Default Organization"
-    DEFAULT_ORG_SLUG: default-org
+    CLICKHOUSE_DB: telemetryflow_db
+    CLICKHOUSE_USER: tfo_admin
+    # [11] Backend - Redis Configuration
+    REDIS_HOST: "{{ .Release.Name }}-cache-redis"
+    REDIS_PORT: "6379"
+    REDIS_MAX_MEMORY: 1024mb
+    REDIS_DB: "0"
+    REDIS_SESSION_DB: "0"
+    REDIS_CACHE_DB: "0"
+    REDIS_QUEUE_DB: "1"
+    # [12] Backend - NATS Configuration
+    NATS_URL: nats://{{ .Release.Name }}-nats:4222
+    NATS_CLUSTER_ID: telemetryflow-cluster
+    # [13] Backend - Cache Configuration (Multi-Level L1/L2)
+    CACHE_L1_ENABLED: "true"
+    CACHE_L1_TTL: "60"
+    CACHE_L1_MAX_SIZE: "5000"
+    CACHE_L2_ENABLED: "true"
+    CACHE_L2_TTL: "3600"
+    CACHE_KEY_PREFIX: "tf:cache:"
+    CACHE_ENABLED: "true"
+    # [14] Backend - BullMQ Queue Configuration
+    ENABLE_BULLMQ: "true"
+    QUEUE_OTLP_CONCURRENCY: "5"
+    QUEUE_EVENTS_CONCURRENCY: "3"
+    QUEUE_TELEMETRY_CONCURRENCY: "5"
+    QUEUE_ALERTS_CONCURRENCY: "2"
+    QUEUE_NOTIFICATIONS_CONCURRENCY: "1"
+    QUEUE_AGGREGATION_CONCURRENCY: "1"
+    QUEUE_CLEANUP_CONCURRENCY: "1"
+    QUEUE_OTLP_RATE_LIMIT: "1000"
+    QUEUE_MAX_ATTEMPTS: "5"
+    QUEUE_BACKOFF_DELAY: "2000"
+    QUEUE_KEEP_COMPLETED: "1000"
+    QUEUE_KEEP_FAILED: "5000"
+    QUEUE_COMPLETED_AGE: "86400"
+    QUEUE_FAILED_AGE: "604800"
+    QUEUE_ENABLED: "true"
+    # [15] Backend - TFO-Agent Configuration
+    TFO_AGENT_VERSION: "1.2.1"
+    TFO_AGENT_HOSTNAME: tfo_container
+    TFO_AGENT_HEARTBEAT_INTERVAL: 60s
+    TFO_AGENT_METRICS_INTERVAL: 30s
+    TFO_COLLECTOR_VERSION: "1.2.1"
+    TFO_AGENT_QAN_ENABLED: "true"
+    TFO_AGENT_QAN_INTERVAL: 60s
+    TFO_AGENT_QAN_ENDPOINT: http://{{ .Release.Name }}-tfo-backend:3000
+    # [16] Backend - JWT & Session (non-secret expiry config)
+    JWT_ACCESS_EXPIRY: 24h
+    JWT_REFRESH_EXPIRY: 30d
+    JWT_EXPIRES_IN: 24h
+    # [17] Backend - Email / SMTP Configuration
+    SMTP_ENABLED: "true"
+    SMTP_HOST: smtp.telemetryflow.id
+    SMTP_PORT: "587"
+    SMTP_SECURE: "true"
+    SMTP_USER: ""
+    SMTP_FROM: TelemetryFlow Platform <noreply@telemetryflow.id>
+    SMTP_FROM_ADDRESS: noreply@telemetryflow.id
+    SMTP_FROM_NAME: TelemetryFlow Platform
+    SMTP_REPLY_TO: support@telemetryflow.id
+    APP_URL: http://{{ .Release.Name }}-tfo-backend:3000
+    # [18] Backend - Rate Limiting Configuration
+    THROTTLE_TTL: "60000"
+    THROTTLE_LIMIT: "500"
+    THROTTLE_INGESTION_TTL: "60000"
+    THROTTLE_INGESTION_LIMIT: "5000"
+    # [25] Kubernetes / Deployment Configuration
+    K8S_NAMESPACE: telemetryflow
+    TELEMETRYFLOW_K8S_CLUSTER_ID: ""
+    # [26] Default Demo Configuration
+    DEFAULT_REGION_CODE: APS3
+    DEFAULT_WORKSPACE_CODE: TELEMETRYFLOW-STAGING
+    DEFAULT_TENANT_CODE: TELEMETRYFLOW
+    DEFAULT_ORGANIZATION_ID: 264563c3-42b3-4623-8890-beaf54277324
+    # Helm operational config
+    GRPC_PORT: "4317"
+    HEALTH_CHECK_INTERVAL_MS: "30000"
+    SHUTDOWN_TIMEOUT_MS: "10000"
   envFromSecrets: []
   healthChecks:
     liveness:
@@ -388,7 +553,7 @@ tfoBackend:
         tag: "16-alpine"
         pullPolicy: ""
       command: |
-        until pg_isready -h {{ .Release.Name }}-postgresql -p 5432 -U telemetryflow; do
+        until pg_isready -h {{ .Release.Name }}-postgresql -p 5432 -U postgres; do
           echo "Waiting for PostgreSQL..."
           sleep 2
         done
@@ -520,8 +685,8 @@ postgresql:
       cpu: "1"
       memory: 1Gi
   env:
-    POSTGRES_DB: telemetryflow
-    POSTGRES_USER: telemetryflow
+    POSTGRES_DB: telemetryflow_db
+    POSTGRES_USER: postgres
     POSTGRES_PASSWORD: "<CHANGE_ME>"
     POSTGRES_PORT: "5432"
     POSTGRES_MAX_CONNECTIONS: "100"
@@ -533,7 +698,7 @@ postgresql:
         command:
           - pg_isready
           - -U
-          - telemetryflow
+          - postgres
       initialDelaySeconds: 30
       periodSeconds: 10
       timeoutSeconds: 5
@@ -544,9 +709,9 @@ postgresql:
         command:
           - pg_isready
           - -U
-          - telemetryflow
+          - postgres
           - -d
-          - telemetryflow
+          - telemetryflow_db
       initialDelaySeconds: 10
       periodSeconds: 10
       timeoutSeconds: 5
@@ -572,8 +737,8 @@ clickhouse:
       cpu: "2"
       memory: 4Gi
   env:
-    CLICKHOUSE_DB: telemetryflow
-    CLICKHOUSE_USER: default
+    CLICKHOUSE_DB: telemetryflow_db
+    CLICKHOUSE_USER: tfo_admin
     CLICKHOUSE_PASSWORD: "<CHANGE_ME>"
     CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     CLICKHOUSE_LOG_LEVEL: information
@@ -623,7 +788,7 @@ cacheRedis:
       cpu: 250m
       memory: 256Mi
   env:
-    REDIS_MAXMEMORY: 200mb
+    REDIS_MAXMEMORY: 1024mb
     REDIS_MAXMEMORY_POLICY: allkeys-lru
 
 redisMaster:
@@ -757,14 +922,23 @@ secrets:
   backend:
     SESSION_SECRET: "<CHANGE_ME>"
     JWT_SECRET: "<CHANGE_ME>"
+    JWT_REFRESH_SECRET: "<CHANGE_ME>"
     ENCRYPTION_KEY: "<CHANGE_ME>"
+    MFA_ENCRYPTION_KEY: "<CHANGE_ME>"
+    LLM_ENCRYPTION_KEY: "<CHANGE_ME>"
+    DB_MONITORING_ENCRYPTION_KEY: "<CHANGE_ME>"
+    POSTGRES_PASSWORD: "<CHANGE_ME>"
+    CLICKHOUSE_PASSWORD: "<CHANGE_ME>"
+    REDIS_PASSWORD: ""
+    SMTP_PASSWORD: ""
+    TELEMETRYFLOW_API_KEY_SECRET: "<CHANGE_ME>"
+    TELEMETRYFLOW_VIZ_PASSWORD: "<CHANGE_ME>"
+    RECAPTCHA_SECRET_KEY: ""
     ADMIN_PASSWORD: "<CHANGE_ME>"
     SUPER_ADMIN_PASSWORD: "<CHANGE_ME>"
   agent:
+    API_KEY_ID: "<CHANGE_ME>"
     API_KEY: "<CHANGE_ME>"
-  database:
-    POSTGRES_PASSWORD: "<CHANGE_ME>"
-    CLICKHOUSE_PASSWORD: "<CHANGE_ME>"
 
 networkPolicy:
   enabled: false

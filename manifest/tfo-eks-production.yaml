@@ -26,7 +26,7 @@ global:
 
 tfoAgent:
   image:
-    tag: "1.4.2"
+    tag: "1.2.1"
   clusterProvider: eks
   resources:
     requests:
@@ -98,11 +98,15 @@ tfoBackend:
   env:
     NODE_ENV: production
     LOG_LEVEL: warn
-    API_RATE_LIMIT_MAX: "1000"
-    API_RATE_LIMIT_WINDOW_MS: "60000"
-    DB_POOL_MIN: "10"
-    DB_POOL_MAX: "50"
-    CLICKHOUSE_TTL_DAYS: "90"
+    CORS_ORIGIN: https://telemetryflow.eks
+    THROTTLE_LIMIT: "1000"
+    THROTTLE_TTL: "60000"
+    THROTTLE_INGESTION_LIMIT: "5000"
+    THROTTLE_INGESTION_TTL: "60000"
+    DATABASE_POOL_SIZE: "50"
+    TELEMETRY_METRICS_RETENTION_DAYS: "90"
+    TELEMETRY_LOGS_RETENTION_DAYS: "30"
+    TELEMETRY_TRACES_RETENTION_DAYS: "14"
   ingress:
     enabled: true
     className: nginx

@@ -1,0 +1,43 @@
+# ==========================================================================
+#  TelemetryFlow - TFState Bootstrap: terraform.tfvars.example
+# --------------------------------------------------------------------------
+#  Copy to terraform.tfvars and edit for your AWS account.
+#  NOTE: *.tfvars is gitignored - never commit real account IDs.
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+#  AWS Account / Region
+# --------------------------------------------------------------------------
+aws_region                      = "ap-southeast-3"
+aws_account_id_destination      = "112233445566"
+aws_account_profile_destination = "TFO-TF-User-Executor"
+
+# --------------------------------------------------------------------------
+#  Tags
+# --------------------------------------------------------------------------
+department = "DEVOPS"
+
+# --------------------------------------------------------------------------
+#  Workspace -> Environment mapping (keep in sync across stacks)
+# --------------------------------------------------------------------------
+workspace_env = {
+  default = "default"
+  lab     = "rnd"
+  staging = "staging"
+  prod    = "prod"
+}
+
+environment = {
+  default = "DEF"
+  lab     = "RND"
+  staging = "STG"
+  prod    = "PROD"
+}
+
+# --------------------------------------------------------------------------
+#  Terraform State Backend (S3 + DynamoDB)
+# --------------------------------------------------------------------------
+tfstate_bucket         = "tfo-tf-state-112233445566-ap-southeast-3"
+tfstate_dynamodb_table = "tfo-ddb-tf-state-112233445566-ap-southeast-3"
+tfstate_path           = "telemetryflow/112233445566/tfstate/terraform.tfstate"
+tfstate_encrypt        = true

@@ -6,7 +6,9 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -23,10 +25,13 @@ import (
 )
 
 const (
-	telemetryFlowFinalizer = "telemetryflow.io/finalizer"
+	telemetryFlowFinalizer = "telemetryflow.id/finalizer"
 	requeueAfter           = 5 * time.Second
 )
 
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings;roles;rolebindings;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses;ingresses/finalizers;ingressclasses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers;horizontalpodautoscalers/finalizers,verbs=get;list;watch;create;update;patch;delete
 type TelemetryFlowReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -82,6 +87,9 @@ func (r *TelemetryFlowReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		{"agent-k8s", r.reconcileAgentK8sDeployment},
 		{"backend", r.reconcileBackend},
 		{"frontend", r.reconcileFrontend},
+		{"backend-ingress", r.reconcileBackendIngress},
+		{"frontend-ingress", r.reconcileFrontendIngress},
+		{"backend-hpa", r.reconcileBackendHPA},
 	}
 
 	for _, step := range steps {
@@ -158,9 +166,10 @@ func (r *TelemetryFlowReconciler) reconcileCollectorRBAC(ctx context.Context, tf
 
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: tf.Namespace,
-			Labels:    r.labelsForComponent(tf.Name, "collector"),
+			Name:        saName,
+			Namespace:   tf.Namespace,
+			Labels:      r.labelsForComponent(tf.Name, "collector"),
+			Annotations: tf.Spec.Collector.ServiceAccount.Annotations,
 		},
 	}
 	if err := r.reconcileRaw(ctx, sa, tf); err != nil {
@@ -293,7 +302,8 @@ func (r *TelemetryFlowReconciler) reconcileCollector(ctx context.Context, tf *te
 		},
 	}
 
-	svc := r.buildMultiPortService(tf, "collector", convertServicePorts(ports))
+	svc := r.buildMultiPortServiceFull(tf, "collector", convertServicePorts(ports), serviceAnnotations(spec.Service), serviceType(spec.Service))
+	r.applyScheduling(&deploy.Spec.Template.Spec, spec.Scheduling)
 	if err := r.reconcileService(ctx, svc, tf); err != nil {
 		return err
 	}
@@ -315,9 +325,10 @@ func (r *TelemetryFlowReconciler) reconcileAgentRBAC(ctx context.Context, tf *te
 
 	sa := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: tf.Namespace,
-			Labels:    r.labelsForComponent(tf.Name, "agent"),
+			Name:        saName,
+			Namespace:   tf.Namespace,
+			Labels:      r.labelsForComponent(tf.Name, "agent"),
+			Annotations: tf.Spec.Agent.ServiceAccount.Annotations,
 		},
 	}
 	if err := r.reconcileRaw(ctx, sa, tf); err != nil {
@@ -426,10 +437,10 @@ func (r *TelemetryFlowReconciler) reconcileAgentDaemonSet(ctx context.Context, t
 					},
 					NodeSelector: map[string]string{"kubernetes.io/os": "linux"},
 					Containers: []corev1.Container{{
-						Name:  "tfo-agent",
-						Image: image,
-						Env:   env,
-						Ports: []corev1.ContainerPort{{ContainerPort: 8888, Name: "metrics"}},
+						Name:      "tfo-agent",
+						Image:     image,
+						Env:       env,
+						Ports:     []corev1.ContainerPort{{ContainerPort: 8888, Name: "metrics"}},
 						Resources: r.buildResourceRequirements(nodeSpec.Resources),
 						VolumeMounts: []corev1.VolumeMount{
 							{Name: "config", MountPath: "/etc/tfo-agent", ReadOnly: true},
@@ -466,6 +477,7 @@ func (r *TelemetryFlowReconciler) reconcileAgentDaemonSet(ctx context.Context, t
 			},
 		},
 	}
+	r.applyScheduling(&ds.Spec.Template.Spec, nodeSpec.Scheduling)
 	return r.reconcileDaemonSet(ctx, ds, tf)
 }
 
@@ -532,9 +544,9 @@ func (r *TelemetryFlowReconciler) reconcileAgentK8sDeployment(ctx context.Contex
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
 					Containers: []corev1.Container{{
-						Name:  "tfo-agent-k8s",
-						Image: image,
-						Env:   env,
+						Name:      "tfo-agent-k8s",
+						Image:     image,
+						Env:       env,
 						Resources: r.buildResourceRequirements(k8sSpec.Resources),
 						VolumeMounts: []corev1.VolumeMount{
 							{Name: "config", MountPath: "/etc/tfo-agent", ReadOnly: true},
@@ -562,6 +574,7 @@ func (r *TelemetryFlowReconciler) reconcileAgentK8sDeployment(ctx context.Contex
 			},
 		},
 	}
+	r.applyScheduling(&deploy.Spec.Template.Spec, k8sSpec.Scheduling)
 	return r.reconcileDeployment(ctx, deploy, tf)
 }
 
@@ -580,7 +593,7 @@ func (r *TelemetryFlowReconciler) reconcilePostgreSQL(ctx context.Context, tf *t
 		image = "postgres:16-alpine"
 	}
 
-	sts := r.buildStatefulSet(tf, "postgresql", image, replicas, spec.Resources, spec.Persistence, nil)
+	sts := r.buildStatefulSetFull(tf, "postgresql", image, replicas, spec.Resources, spec.Persistence, nil, spec.Scheduling)
 	return r.reconcileStatefulSet(ctx, sts, tf)
 }
 
@@ -595,7 +608,7 @@ func (r *TelemetryFlowReconciler) reconcileClickHouse(ctx context.Context, tf *t
 		image = "clickhouse/clickhouse-server:24-alpine"
 	}
 
-	sts := r.buildStatefulSet(tf, "clickhouse", image, replicas, spec.Resources, spec.Persistence, nil)
+	sts := r.buildStatefulSetFull(tf, "clickhouse", image, replicas, spec.Resources, spec.Persistence, nil, spec.Scheduling)
 	return r.reconcileStatefulSet(ctx, sts, tf)
 }
 
@@ -665,8 +678,8 @@ func (r *TelemetryFlowReconciler) reconcileBackend(ctx context.Context, tf *tele
 		image = "telemetryflow/backend:latest"
 	}
 
-	deploy := r.buildDeployment(tf, "backend", image, replicas, spec.Resources, []corev1.ContainerPort{{ContainerPort: 8080, Name: "http"}})
-	svc := r.buildService(tf, "backend", 8080)
+	deploy := r.buildDeploymentFull(tf, "backend", image, replicas, spec.Resources, []corev1.ContainerPort{{ContainerPort: 8080, Name: "http"}}, spec.Scheduling)
+	svc := r.buildServiceFull(tf, "backend", 8080, serviceAnnotations(spec.Service), serviceType(spec.Service))
 	if err := r.reconcileService(ctx, svc, tf); err != nil {
 		return err
 	}
@@ -684,7 +697,7 @@ func (r *TelemetryFlowReconciler) reconcileFrontend(ctx context.Context, tf *tel
 		image = "telemetryflow/frontend:latest"
 	}
 
-	deploy := r.buildDeployment(tf, "frontend", image, replicas, spec.Resources, []corev1.ContainerPort{{ContainerPort: 3000, Name: "http"}})
+	deploy := r.buildDeploymentFull(tf, "frontend", image, replicas, spec.Resources, []corev1.ContainerPort{{ContainerPort: 3000, Name: "http"}}, spec.Scheduling)
 	svc := r.buildService(tf, "frontend", 3000)
 	if err := r.reconcileService(ctx, svc, tf); err != nil {
 		return err
@@ -873,6 +886,10 @@ func (r *TelemetryFlowReconciler) reconcileSecret(ctx context.Context, desired *
 // =============================================================================
 
 func (r *TelemetryFlowReconciler) buildStatefulSet(tf *telemetryflowv1alpha1.TelemetryFlow, component, image string, replicas int32, resources *telemetryflowv1alpha1.ResourceSpec, persistence *telemetryflowv1alpha1.PersistenceSpec, ports []corev1.ContainerPort) *appsv1.StatefulSet {
+	return r.buildStatefulSetFull(tf, component, image, replicas, resources, persistence, ports, telemetryflowv1alpha1.SchedulingSpec{})
+}
+
+func (r *TelemetryFlowReconciler) buildStatefulSetFull(tf *telemetryflowv1alpha1.TelemetryFlow, component, image string, replicas int32, resources *telemetryflowv1alpha1.ResourceSpec, persistence *telemetryflowv1alpha1.PersistenceSpec, ports []corev1.ContainerPort, scheduling telemetryflowv1alpha1.SchedulingSpec) *appsv1.StatefulSet {
 	labels := r.labelsForComponent(tf.Name, component)
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -893,6 +910,8 @@ func (r *TelemetryFlowReconciler) buildStatefulSet(tf *telemetryflowv1alpha1.Tel
 			},
 		},
 	}
+
+	r.applyScheduling(&sts.Spec.Template.Spec, scheduling)
 
 	if persistence != nil && persistence.Enabled {
 		pvc := corev1.PersistentVolumeClaim{
@@ -920,8 +939,12 @@ func (r *TelemetryFlowReconciler) buildStatefulSetWithArgs(tf *telemetryflowv1al
 }
 
 func (r *TelemetryFlowReconciler) buildDeployment(tf *telemetryflowv1alpha1.TelemetryFlow, component, image string, replicas int32, resources *telemetryflowv1alpha1.ResourceSpec, ports []corev1.ContainerPort) *appsv1.Deployment {
+	return r.buildDeploymentFull(tf, component, image, replicas, resources, ports, telemetryflowv1alpha1.SchedulingSpec{})
+}
+
+func (r *TelemetryFlowReconciler) buildDeploymentFull(tf *telemetryflowv1alpha1.TelemetryFlow, component, image string, replicas int32, resources *telemetryflowv1alpha1.ResourceSpec, ports []corev1.ContainerPort, scheduling telemetryflowv1alpha1.SchedulingSpec) *appsv1.Deployment {
 	labels := r.labelsForComponent(tf.Name, component)
-	return &appsv1.Deployment{
+	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-%s", tf.Name, component), Namespace: tf.Namespace, Labels: labels,
 		},
@@ -939,11 +962,17 @@ func (r *TelemetryFlowReconciler) buildDeployment(tf *telemetryflowv1alpha1.Tele
 			},
 		},
 	}
+	r.applyScheduling(&deploy.Spec.Template.Spec, scheduling)
+	return deploy
 }
 
 func (r *TelemetryFlowReconciler) buildService(tf *telemetryflowv1alpha1.TelemetryFlow, component string, port int32) *corev1.Service {
+	return r.buildServiceFull(tf, component, port, nil, "")
+}
+
+func (r *TelemetryFlowReconciler) buildServiceFull(tf *telemetryflowv1alpha1.TelemetryFlow, component string, port int32, annotations map[string]string, svcType string) *corev1.Service {
 	labels := r.labelsForComponent(tf.Name, component)
-	return &corev1.Service{
+	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-%s", tf.Name, component), Namespace: tf.Namespace, Labels: labels,
 		},
@@ -954,16 +983,34 @@ func (r *TelemetryFlowReconciler) buildService(tf *telemetryflowv1alpha1.Telemet
 			}},
 		},
 	}
+	if annotations != nil {
+		svc.Annotations = annotations
+	}
+	if svcType != "" {
+		svc.Spec.Type = corev1.ServiceType(svcType)
+	}
+	return svc
 }
 
 func (r *TelemetryFlowReconciler) buildMultiPortService(tf *telemetryflowv1alpha1.TelemetryFlow, component string, ports []corev1.ServicePort) *corev1.Service {
+	return r.buildMultiPortServiceFull(tf, component, ports, nil, "")
+}
+
+func (r *TelemetryFlowReconciler) buildMultiPortServiceFull(tf *telemetryflowv1alpha1.TelemetryFlow, component string, ports []corev1.ServicePort, annotations map[string]string, svcType string) *corev1.Service {
 	labels := r.labelsForComponent(tf.Name, component)
-	return &corev1.Service{
+	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-%s", tf.Name, component), Namespace: tf.Namespace, Labels: labels,
 		},
 		Spec: corev1.ServiceSpec{Selector: labels, Ports: ports},
 	}
+	if annotations != nil {
+		svc.Annotations = annotations
+	}
+	if svcType != "" {
+		svc.Spec.Type = corev1.ServiceType(svcType)
+	}
+	return svc
 }
 
 func (r *TelemetryFlowReconciler) buildCollectorConfigMap(tf *telemetryflowv1alpha1.TelemetryFlow, config string) *corev1.ConfigMap {
@@ -1073,8 +1120,8 @@ func (r *TelemetryFlowReconciler) buildAgentK8sEnv(tf *telemetryflowv1alpha1.Tel
 func (r *TelemetryFlowReconciler) collectorSecurityContext(spec telemetryflowv1alpha1.SecurityContextSpec) *corev1.PodSecurityContext {
 	truePtr := true
 	return &corev1.PodSecurityContext{
-		RunAsNonRoot:             boolPtr(spec.RunAsNonRoot, &truePtr),
-		SeccompProfile:          seccompProfile(spec.SeccompProfileType),
+		RunAsNonRoot:   boolPtr(spec.RunAsNonRoot, &truePtr),
+		SeccompProfile: seccompProfile(spec.SeccompProfileType),
 	}
 }
 
@@ -1156,7 +1203,7 @@ func resourceQuantity(s string) *resource.Quantity {
 	return &q
 }
 
-func int64Ptr(i int64) *int64    { return &i }
+func int64Ptr(i int64) *int64 { return &i }
 func boolPtr(b *bool, def *bool) *bool {
 	if b != nil {
 		return b
@@ -1168,6 +1215,237 @@ func seccompProfile(t string) *corev1.SeccompProfile {
 		t = "RuntimeDefault"
 	}
 	return &corev1.SeccompProfile{Type: corev1.SeccompProfileType(t)}
+}
+
+// =============================================================================
+// Scheduling / Service helpers
+// =============================================================================
+
+// applyScheduling maps the EKS scheduling knobs (nodeSelector, tolerations,
+// topologySpreadConstraints) onto a PodSpec. It is a no-op when the spec is empty.
+func (r *TelemetryFlowReconciler) applyScheduling(pod *corev1.PodSpec, s telemetryflowv1alpha1.SchedulingSpec) {
+	if len(s.NodeSelector) > 0 {
+		pod.NodeSelector = s.NodeSelector
+	}
+	if len(s.Tolerations) > 0 {
+		for _, t := range s.Tolerations {
+			tol := corev1.Toleration{
+				Key: t.Key, Operator: corev1.TolerationOperator(t.Operator),
+				Value: t.Value, Effect: corev1.TaintEffect(t.Effect),
+			}
+			if t.TolerationSeconds != nil {
+				sec := *t.TolerationSeconds
+				tol.TolerationSeconds = &sec
+			}
+			pod.Tolerations = append(pod.Tolerations, tol)
+		}
+	}
+	for _, tsc := range s.TopologySpreadConstraints {
+		selector := &metav1.LabelSelector{MatchLabels: tsc.LabelSelector}
+		pod.TopologySpreadConstraints = append(pod.TopologySpreadConstraints, corev1.TopologySpreadConstraint{
+			MaxSkew:           tsc.MaxSkew,
+			TopologyKey:       tsc.TopologyKey,
+			WhenUnsatisfiable: corev1.UnsatisfiableConstraintAction(tsc.WhenUnsatisfiable),
+			LabelSelector:     selector,
+		})
+	}
+}
+
+func serviceAnnotations(svc *telemetryflowv1alpha1.ComponentServiceSpec) map[string]string {
+	if svc == nil {
+		return nil
+	}
+	return svc.Annotations
+}
+
+func serviceType(svc *telemetryflowv1alpha1.ComponentServiceSpec) string {
+	if svc == nil {
+		return ""
+	}
+	return svc.Type
+}
+
+// =============================================================================
+// Ingress (per-component: backend, frontend)
+// =============================================================================
+
+func (r *TelemetryFlowReconciler) reconcileBackendIngress(ctx context.Context, tf *telemetryflowv1alpha1.TelemetryFlow) error {
+	ing := tf.Spec.Backend.Ingress
+	if ing == nil || !ing.Enabled {
+		return nil
+	}
+	return r.reconcileComponentIngress(ctx, tf, "backend", ing, 8080)
+}
+
+func (r *TelemetryFlowReconciler) reconcileFrontendIngress(ctx context.Context, tf *telemetryflowv1alpha1.TelemetryFlow) error {
+	ing := tf.Spec.Frontend.Ingress
+	if ing == nil || !ing.Enabled {
+		return nil
+	}
+	return r.reconcileComponentIngress(ctx, tf, "frontend", ing, 3000)
+}
+
+func (r *TelemetryFlowReconciler) reconcileComponentIngress(ctx context.Context, tf *telemetryflowv1alpha1.TelemetryFlow, component string, spec *telemetryflowv1alpha1.ComponentIngressSpec, targetPort int) error {
+	logger := log.FromContext(ctx)
+	labels := r.labelsForComponent(tf.Name, component)
+
+	pathType := networkingv1.PathTypePrefix
+	paths := spec.Paths
+	if len(paths) == 0 {
+		paths = []string{"/"}
+	}
+	rules := []networkingv1.IngressRule{}
+	if spec.Host != "" {
+		rule := networkingv1.IngressRule{Host: spec.Host}
+		rule.HTTP = &networkingv1.HTTPIngressRuleValue{}
+		for _, p := range paths {
+			rule.HTTP.Paths = append(rule.HTTP.Paths, networkingv1.HTTPIngressPath{
+				Path:     p,
+				PathType: &pathType,
+				Backend: networkingv1.IngressBackend{
+					Service: &networkingv1.IngressServiceBackend{
+						Name: fmt.Sprintf("%s-%s", tf.Name, component),
+						Port: networkingv1.ServiceBackendPort{Number: int32(targetPort)},
+					},
+				},
+			})
+		}
+		rules = append(rules, rule)
+	}
+
+	tls := []networkingv1.IngressTLS{}
+	if spec.TLS && spec.Host != "" {
+		tlsEntry := networkingv1.IngressTLS{Hosts: []string{spec.Host}}
+		if spec.TLSSecretName != "" {
+			tlsEntry.SecretName = spec.TLSSecretName
+		}
+		tls = append(tls, tlsEntry)
+	}
+
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        fmt.Sprintf("%s-%s", tf.Name, component),
+			Namespace:   tf.Namespace,
+			Labels:      labels,
+			Annotations: spec.Annotations,
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: rules,
+			TLS:   tls,
+		},
+	}
+	if spec.ClassName != "" {
+		ingress.Spec.IngressClassName = &spec.ClassName
+	}
+
+	if err := controllerutil.SetControllerReference(tf, ingress, r.Scheme); err != nil {
+		return err
+	}
+
+	existing := &networkingv1.Ingress{}
+	err := r.Get(ctx, types.NamespacedName{Name: ingress.Name, Namespace: ingress.Namespace}, existing)
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Creating Ingress", "name", ingress.Name)
+		return r.Create(ctx, ingress)
+	}
+	if err != nil {
+		return err
+	}
+
+	existing.Spec.Rules = ingress.Spec.Rules
+	existing.Spec.TLS = ingress.Spec.TLS
+	existing.Spec.IngressClassName = ingress.Spec.IngressClassName
+	existing.Annotations = ingress.Annotations
+	logger.Info("Updating Ingress", "name", ingress.Name)
+	return r.Update(ctx, existing)
+}
+
+// =============================================================================
+// HorizontalPodAutoscaler (backend)
+// =============================================================================
+
+func (r *TelemetryFlowReconciler) reconcileBackendHPA(ctx context.Context, tf *telemetryflowv1alpha1.TelemetryFlow) error {
+	logger := log.FromContext(ctx)
+	as := tf.Spec.Backend.Autoscaling
+	if as == nil || !as.Enabled {
+		return nil
+	}
+
+	labels := r.labelsForComponent(tf.Name, "backend")
+	deployName := fmt.Sprintf("%s-backend", tf.Name)
+
+	minRep := as.MinReplicas
+	if minRep == 0 {
+		minRep = 1
+	}
+	maxRep := as.MaxReplicas
+	if maxRep == 0 {
+		maxRep = minRep
+	}
+
+	metrics := []autoscalingv2.MetricSpec{}
+	if as.TargetCPUUtilizationPercentage > 0 {
+		cpu := int32(as.TargetCPUUtilizationPercentage)
+		metrics = append(metrics, autoscalingv2.MetricSpec{
+			Type: autoscalingv2.ResourceMetricSourceType,
+			Resource: &autoscalingv2.ResourceMetricSource{
+				Name: corev1.ResourceCPU,
+				Target: autoscalingv2.MetricTarget{
+					Type:               autoscalingv2.UtilizationMetricType,
+					AverageUtilization: &cpu,
+				},
+			},
+		})
+	}
+	if as.TargetMemoryUtilizationPercentage > 0 {
+		mem := int32(as.TargetMemoryUtilizationPercentage)
+		metrics = append(metrics, autoscalingv2.MetricSpec{
+			Type: autoscalingv2.ResourceMetricSourceType,
+			Resource: &autoscalingv2.ResourceMetricSource{
+				Name: corev1.ResourceMemory,
+				Target: autoscalingv2.MetricTarget{
+					Type:               autoscalingv2.UtilizationMetricType,
+					AverageUtilization: &mem,
+				},
+			},
+		})
+	}
+
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deployName,
+			Namespace: tf.Namespace,
+			Labels:    labels,
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			MinReplicas: &minRep,
+			MaxReplicas: maxRep,
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       deployName,
+			},
+			Metrics: metrics,
+		},
+	}
+
+	if err := controllerutil.SetControllerReference(tf, hpa, r.Scheme); err != nil {
+		return err
+	}
+
+	existing := &autoscalingv2.HorizontalPodAutoscaler{}
+	err := r.Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, existing)
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Creating HorizontalPodAutoscaler", "name", hpa.Name)
+		return r.Create(ctx, hpa)
+	}
+	if err != nil {
+		return err
+	}
+
+	existing.Spec = hpa.Spec
+	logger.Info("Updating HorizontalPodAutoscaler", "name", hpa.Name)
+	return r.Update(ctx, existing)
 }
 
 // =============================================================================
@@ -1186,5 +1464,7 @@ func (r *TelemetryFlowReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&rbacv1.ClusterRole{}).
 		Owns(&rbacv1.ClusterRoleBinding{}).
+		Owns(&networkingv1.Ingress{}).
+		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
 		Complete(r)
 }

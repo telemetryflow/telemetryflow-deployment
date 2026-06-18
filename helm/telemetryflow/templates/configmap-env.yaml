@@ -2,46 +2,13 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-tfo-backend-env
+  name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
   namespace: {{ include "telemetryflow.namespace" . }}
   labels:
     {{- include "telemetryflow.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
 data:
-  NODE_ENV: {{ .Values.tfoBackend.env.NODE_ENV | quote }}
-  PORT: {{ .Values.tfoBackend.env.PORT | quote }}
-  GRPC_PORT: {{ .Values.tfoBackend.env.GRPC_PORT | quote }}
-  LOG_LEVEL: {{ .Values.tfoBackend.env.LOG_LEVEL | quote }}
-  TZ: {{ .Values.tfoBackend.env.TZ | quote }}
-  API_RATE_LIMIT_MAX: {{ .Values.tfoBackend.env.API_RATE_LIMIT_MAX | quote }}
-  API_RATE_LIMIT_WINDOW_MS: {{ .Values.tfoBackend.env.API_RATE_LIMIT_WINDOW_MS | quote }}
-  HEALTH_CHECK_INTERVAL_MS: {{ .Values.tfoBackend.env.HEALTH_CHECK_INTERVAL_MS | quote }}
-  SHUTDOWN_TIMEOUT_MS: {{ .Values.tfoBackend.env.SHUTDOWN_TIMEOUT_MS | quote }}
-  DB_HOST: {{ .Values.tfoBackend.env.DB_HOST | replace "{{ .Release.Name }}" .Release.Name | quote }}
-  DB_PORT: {{ .Values.tfoBackend.env.DB_PORT | quote }}
-  DB_NAME: {{ .Values.tfoBackend.env.DB_NAME | quote }}
-  DB_USER: {{ .Values.tfoBackend.env.DB_USER | quote }}
-  DB_SSL: {{ .Values.tfoBackend.env.DB_SSL | quote }}
-  DB_POOL_MIN: {{ .Values.tfoBackend.env.DB_POOL_MIN | quote }}
-  DB_POOL_MAX: {{ .Values.tfoBackend.env.DB_POOL_MAX | quote }}
-  REDIS_CACHE_HOST: {{ .Values.tfoBackend.env.REDIS_CACHE_HOST | replace "{{ .Release.Name }}" .Release.Name | quote }}
-  REDIS_CACHE_PORT: {{ .Values.tfoBackend.env.REDIS_CACHE_PORT | quote }}
-  REDIS_CACHE_DB: {{ .Values.tfoBackend.env.REDIS_CACHE_DB | quote }}
-  REDIS_CACHE_TTL: {{ .Values.tfoBackend.env.REDIS_CACHE_TTL | quote }}
-  REDIS_BULL_HOST: {{ .Values.tfoBackend.env.REDIS_BULL_HOST | replace "{{ .Release.Name }}" .Release.Name | quote }}
-  REDIS_BULL_PORT: {{ .Values.tfoBackend.env.REDIS_BULL_PORT | quote }}
-  REDIS_BULL_DB: {{ .Values.tfoBackend.env.REDIS_BULL_DB | quote }}
-  NATS_URL: {{ .Values.tfoBackend.env.NATS_URL | replace "{{ .Release.Name }}" .Release.Name | quote }}
-  NATS_CLUSTER: {{ .Values.tfoBackend.env.NATS_CLUSTER | quote }}
-  CLICKHOUSE_HOST: {{ .Values.tfoBackend.env.CLICKHOUSE_HOST | replace "{{ .Release.Name }}" .Release.Name | quote }}
-  CLICKHOUSE_PORT: {{ .Values.tfoBackend.env.CLICKHOUSE_PORT | quote }}
-  CLICKHOUSE_NATIVE_PORT: {{ .Values.tfoBackend.env.CLICKHOUSE_NATIVE_PORT | quote }}
-  CLICKHOUSE_USER: {{ .Values.tfoBackend.env.CLICKHOUSE_USER | quote }}
-  CLICKHOUSE_DATABASE: {{ .Values.tfoBackend.env.CLICKHOUSE_DATABASE | quote }}
-  CLICKHOUSE_CLUSTER: {{ .Values.tfoBackend.env.CLICKHOUSE_CLUSTER | quote }}
-  CLICKHOUSE_TTL_DAYS: {{ .Values.tfoBackend.env.CLICKHOUSE_TTL_DAYS | quote }}
-  ADMIN_EMAIL: {{ .Values.tfoBackend.env.ADMIN_EMAIL | quote }}
-  SUPER_ADMIN_EMAIL: {{ .Values.tfoBackend.env.SUPER_ADMIN_EMAIL | quote }}
-  DEFAULT_ORG_NAME: {{ .Values.tfoBackend.env.DEFAULT_ORG_NAME | quote }}
-  DEFAULT_ORG_SLUG: {{ .Values.tfoBackend.env.DEFAULT_ORG_SLUG | quote }}
+  {{- range $key, $value := .Values.tfoBackend.env }}
+  {{ $key }}: {{ tpl (toString $value) $ | quote }}
+  {{- end }}
 {{- end }}

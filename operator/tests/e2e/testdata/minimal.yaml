@@ -1,4 +1,4 @@
-apiVersion: telemetryflow.io/v1alpha1
+apiVersion: telemetryflow.id/v1alpha1
 kind: TelemetryFlow
 metadata:
   name: e2e-test

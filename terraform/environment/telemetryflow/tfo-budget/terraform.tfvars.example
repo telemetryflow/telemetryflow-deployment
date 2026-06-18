@@ -1,0 +1,59 @@
+# ==========================================================================
+#  TelemetryFlow - TFO Budget: terraform.tfvars.example
+# --------------------------------------------------------------------------
+#  Copy to terraform.tfvars and edit for your AWS account.
+#  NOTE: *.tfvars is gitignored — never commit real account IDs.
+# ==========================================================================
+
+# --------------------------------------------------------------------------
+#  AWS Account / Region
+# --------------------------------------------------------------------------
+aws_region                      = "ap-southeast-3"
+aws_account_id_destination      = "112233445566"
+aws_account_profile_destination = "TFO-TF-User-Executor"
+
+# --------------------------------------------------------------------------
+#  Tags
+# --------------------------------------------------------------------------
+department = "DEVOPS"
+
+# --------------------------------------------------------------------------
+#  Workspace -> Environment mapping (keep in sync with _tfstate stack)
+# --------------------------------------------------------------------------
+workspace_env = {
+  default = "default"
+  lab     = "rnd"
+  staging = "staging"
+  prod    = "prod"
+}
+
+environment = {
+  default = "DEF"
+  lab     = "RND"
+  staging = "STG"
+  prod    = "PROD"
+}
+
+# --------------------------------------------------------------------------
+#  Budget — Forecast (projected spend alert)
+# --------------------------------------------------------------------------
+create_budgets                 = true   # set false in lab to skip
+forecast_budget_name           = "tfo-monthly-forecast"
+forecast_budget_limit_amount   = "200"  # USD/month
+forecast_budget_threshold      = 80     # alert at 80% of forecast
+forecast_budget_subscriber_email = "support@telemetryflow.id"
+
+# --------------------------------------------------------------------------
+#  Budget — Actual (current spend alert)
+# --------------------------------------------------------------------------
+actual_budget_name           = "tfo-monthly-actual"
+actual_budget_limit_amount   = "250"  # USD/month
+actual_budget_threshold      = 80     # alert at 80% of actual
+actual_budget_subscriber_email = "support@telemetryflow.id"
+
+# --------------------------------------------------------------------------
+#  Budget — Common
+# --------------------------------------------------------------------------
+budget_time_period_start = "2025-01-01_00:00"
+budget_limit_unit        = "USD"
+budget_time_unit         = "MONTHLY"

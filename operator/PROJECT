@@ -1,4 +1,4 @@
-domain: telemetryflow.io
+domain: telemetryflow.id
 layout: go.kubebuilder.io/v4
 projectName: telemetryflow-operator
 repo: github.com/telemetryflow/telemetryflow-operator

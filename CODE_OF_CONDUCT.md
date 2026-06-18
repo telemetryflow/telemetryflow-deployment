@@ -7,7 +7,7 @@
 
   <h3>TelemetryFlow Deployment</h3>
 
-[![Version](https://img.shields.io/badge/Version-1.4.2-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.5.0-orange.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](https://hub.docker.com/r/telemetryflow/telemetryflow-platform)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&style=flat-square)](https://go.dev/)

@@ -103,7 +103,7 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" . }}-db-secret
+                  name: {{ include "telemetryflow.fullname" . }}-backend-secrets
                   key: POSTGRES_PASSWORD
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata

@@ -34,6 +34,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-06-19
+
+### Added
+
+- **Terraform EKS module** (`terraform/modules/eks/`) — observability EKS cluster (Kubernetes 1.35):
+  - `aws_eks_cluster` (1.35) with OIDC provider + control-plane logs
+  - Worker node group defaulting to **3 × t3.large** (prod `m5.large`), autoscaler-tagged
+  - Managed add-ons: kube-proxy `v1.35.1-eksbuild.1`, vpc-cni `v1.21.0-eksbuild.1`, coredns `v1.13.1-eksbuild.1`, snapshot-controller `v8.4.0-eksbuild.1`
+  - CSI drivers via **EKS Pod Identity**: `eks-pod-identity-agent` `v1.4.0-eksbuild.1`, `aws-ebs-csi-driver` `v1.50.0-eksbuild.1`, `aws-efs-csi-driver` `v2.2.5-eksbuild.1`
+  - IAM roles: cluster, nodes, EBS/EFS CSI (Pod Identity), cluster-autoscaler (OIDC/IRSA), AWS Load Balancer Controller, Route53 cert-manager
+  - EKS security group (SSH, PostgreSQL, Redis, OTLP 4317/4318, NATS, node-to-node, egress) + private S3 bucket (versioned, TLS-only)
+- **Terraform EKS environment** (`terraform/environment/telemetryflow/tfo-eks/`) — workspace-driven wiring (`lab`/`staging`/`prod`) reading VPC/subnet/SG outputs from the `tfo-ec2` stack via `terraform_remote_state`; includes `backend.tf.example`, `terraform.tfvars.example`, HOW-TO.md, README.md
+- **Operator CRD extensions** for EKS manifest helm values:
+  - `SchedulingSpec` (`nodeSelector`, `tolerations`, `topologySpreadConstraints`, `affinity`) on backend, frontend, collector, agent (node + k8s), postgresql, clickhouse, redis, nats
+  - `ComponentServiceSpec` (per-component Service `type` + `annotations`, e.g. `service.beta.kubernetes.io/aws-load-balancer-type: nlb`) on collector and backend
+  - `ComponentIngressSpec` (per-component Ingress with `host`, `annotations`, `tls`, `tlsSecretName`, `className`, `paths`) on backend and frontend
+  - `AutoscalingSpec` (HPA: min/max replicas, CPU/memory utilization targets) on backend
+  - `ServiceAccountSpec.Annotations` (IRSA `eks.amazonaws.com/role-arn`) on collector and agent
+  - `AgentSpec.ClusterProvider` (`eks`), `NATSSpec.JetStream` (`maxSize`/`maxMemory`)
+- **Operator controller wiring** — `applyScheduling` helper, `buildDeploymentFull`/`buildStatefulSetFull`, `buildServiceFull`/`buildMultiPortServiceFull`, `reconcileBackendIngress`/`reconcileFrontendIngress` (Ingress), `reconcileBackendHPA` (HPA); SetupWithManager now `Owns` Ingress + HPA; RBAC role + kubebuilder markers for `rbac.authorization.k8s.io`, `networking.k8s.io`, `autoscaling`
+
+### Changed
+
+- Version bumped to **1.5.0**
+- Operator sample CR (`config/samples/`) rewritten to mirror the EKS production manifest (gp3 storageClass, EKS nodegroup selectors, topology spread, NLB service annotations, IRSA serviceAccount annotations, backend HPA + ingress)
+
+### Fixed
+
+- Operator pre-existing build break: invalid `rbacv1` import path corrected to `k8s.io/api/rbac/v1`
+- Operator pre-existing build break: non-existent `sigs.k8s.io/yaml v1.4.2` pinned to `v1.4.0` in `go.mod`/`go.sum`
+
 ## [1.4.2] - 2026-06-17
 
 ### Added

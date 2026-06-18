@@ -79,7 +79,7 @@ IMPORTANT - UPDATE SECRETS:
   kubectl -n {{ include "telemetryflow.namespace" . }} get secrets
 
 {{- if .Values.secrets.create }}
-  kubectl edit secret tfo-backend-secrets -n {{ include "telemetryflow.namespace" . }}
+  kubectl edit secret {{ include "telemetryflow.fullname" . }}-backend-secrets -n {{ include "telemetryflow.namespace" . }}
 {{- end }}
 
 VERIFY DEPLOYMENT:

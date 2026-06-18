@@ -35,6 +35,13 @@ spec:
         - name: tfo-viz
           image: "{{ .Values.tfoViz.image.repository }}:{{ .Values.tfoViz.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.tfoViz.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
+            {{- if .Values.secrets.create }}
+            - secretRef:
+                name: {{ include "telemetryflow.fullname" . }}-backend-secrets
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.tfoViz.ports.http.containerPort }}

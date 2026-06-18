@@ -189,7 +189,7 @@ var _ = Describe("TelemetryFlow Operator E2E", func() {
 			By("Verifying finalizer is set")
 			fetched := &telemetryflowv1alpha1.TelemetryFlow{}
 			Expect(k8sClient.Get(nil, types.NamespacedName{Name: name, Namespace: e2eNamespace}, fetched)).Should(Succeed())
-			Expect(fetched.Finalizers).To(ContainElement("telemetryflow.io/finalizer"))
+			Expect(fetched.Finalizers).To(ContainElement("telemetryflow.id/finalizer"))
 
 			By("Verifying component statuses are populated")
 			Expect(fetched.Status.ComponentStatuses).NotTo(BeEmpty())

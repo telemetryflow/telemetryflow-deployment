@@ -87,7 +87,7 @@ spec:
                 name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
             {{- if .Values.secrets.create }}
             - secretRef:
-                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-secrets
+                name: {{ include "telemetryflow.fullname" . }}-backend-secrets
             {{- end }}
         {{- end }}
         {{- if .Values.tfoBackend.initContainers.seeds.enabled }}
@@ -104,7 +104,7 @@ spec:
                 name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
             {{- if .Values.secrets.create }}
             - secretRef:
-                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-secrets
+                name: {{ include "telemetryflow.fullname" . }}-backend-secrets
             {{- end }}
         {{- end }}
       containers:
@@ -123,47 +123,25 @@ spec:
                 name: {{ include "telemetryflow.fullname" . }}-tfo-backend-config
             {{- if .Values.secrets.create }}
             - secretRef:
-                name: {{ include "telemetryflow.fullname" . }}-tfo-backend-secrets
+                name: {{ include "telemetryflow.fullname" . }}-backend-secrets
             {{- end }}
             {{- range .Values.tfoBackend.envFromSecrets }}
             - secretRef:
                 name: {{ . }}
             {{- end }}
           env:
-            {{- $root := $ }}
-            {{- range $key, $value := .Values.tfoBackend.env }}
-            {{- if not (or (contains "SECRET" $key) (contains "PASSWORD" $key) (contains "TOKEN" $key) (contains "KEY" $key)) }}
-            - name: {{ $key }}
-              value: {{ tpl (toString $value) $root | quote }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.secrets.create }}
-            - name: SESSION_SECRET
+            - name: K8S_POD_NAME
               valueFrom:
-                secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
-                  key: SESSION_SECRET
-            - name: JWT_SECRET
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NODE_NAME
               valueFrom:
-                secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
-                  key: JWT_SECRET
-            - name: ENCRYPTION_KEY
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_NAMESPACE
               valueFrom:
-                secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
-                  key: ENCRYPTION_KEY
-            - name: ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
-                  key: ADMIN_PASSWORD
-            - name: SUPER_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "telemetryflow.fullname" $ }}-tfo-backend-secrets
-                  key: SUPER_ADMIN_PASSWORD
-            {{- end }}
+                fieldRef:
+                  fieldPath: metadata.namespace
           {{- if .Values.tfoBackend.healthChecks.liveness.enabled }}
           livenessProbe:
             httpGet:
@@ -222,7 +200,7 @@ spec:
   type: {{ .Values.tfoBackend.service.type }}
   ports:
     - name: http
-      port: 8080
+      port: 3000
       targetPort: http
       protocol: TCP
     - name: grpc
@@ -260,7 +238,7 @@ spec:
               service:
                 name: {{ include "telemetryflow.fullname" . }}-tfo-backend
                 port:
-                  number: 8080
+                  number: 3000
   {{- if or .Values.tfoBackend.ingress.tls .Values.global.tls.enabled }}
   tls:
     - hosts:

@@ -7,7 +7,7 @@ import (
 
 var (
 	GroupVersion = schema.GroupVersion{
-		Group:   "telemetryflow.io",
+		Group:   "telemetryflow.id",
 		Version: "v1alpha1",
 	}
 

@@ -9,7 +9,7 @@
 # Build Configuration
 # =============================================================================
 PRODUCT_NAME    := TelemetryFlow Deployment
-VERSION         ?= 1.4.2
+VERSION         ?= 1.5.0
 GIT_COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GIT_BRANCH      := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME      := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
