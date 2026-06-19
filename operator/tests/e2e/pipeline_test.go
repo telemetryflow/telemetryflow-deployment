@@ -1,7 +1,7 @@
 // Package e2e_test contains end-to-end tests covering the full TelemetryFlow
 // Operator lifecycle: startup, reconciliation pipeline, and graceful shutdown.
 //
-// TelemetryFlow Operator - Community Enterprise Observability Platform (CEOP)
+// TelemetryFlow Operator - AI-Powered Observability & Incident Response Management (IRM) Platform
 // Copyright (c) 2024-2026 Telemetri Data Indonesia. All rights reserved.
 // Open Source Software built by Telemetri Data Indonesia.
 //

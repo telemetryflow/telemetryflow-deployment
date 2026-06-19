@@ -1,6 +1,6 @@
 # TelemetryFlow Operator - Makefile
 #
-# TelemetryFlow Operator - Community Enterprise Observability Platform (CEOP)
+# TelemetryFlow Operator - AI-Powered Observability & Incident Response Management (IRM) Platform
 # Copyright (c) 2024-2026 Telemetri Data Indonesia. All rights reserved.
 #
 # Kubernetes Operator for managing TelemetryFlow deployments (Kubebuilder / Go 1.26)

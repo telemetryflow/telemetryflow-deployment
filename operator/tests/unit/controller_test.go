@@ -1,7 +1,7 @@
 // Package controller_test contains unit tests for the TelemetryFlow controller
 // reconciliation logic using envtest (etcd + kube-apiserver, no real cluster needed).
 //
-// TelemetryFlow Operator - Community Enterprise Observability Platform (CEOP)
+// TelemetryFlow Operator - AI-Powered Observability & Incident Response Management (IRM) Platform
 // Copyright (c) 2024-2026 Telemetri Data Indonesia. All rights reserved.
 // Open Source Software built by Telemetri Data Indonesia.
 //
