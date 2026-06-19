@@ -1,6 +1,6 @@
 # TelemetryFlow Deployment - Makefile
 #
-# TelemetryFlow Deployment - Community Enterprise Observability Platform (CEOP)
+# TelemetryFlow Deployment - AI-Powered Observability & Incident Response Management (IRM) Platform
 # Copyright (c) 2024-2026 Telemetri Data Indonesia. All rights reserved.
 #
 # Build, deploy, and manage TelemetryFlow infrastructure across environments

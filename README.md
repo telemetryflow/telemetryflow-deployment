@@ -586,7 +586,7 @@ Apache License 2.0 — see [LICENSE](./LICENSE) for details.
 
 ## Acknowledgments
 
-Part of [TelemetryFlow Platform](https://github.com/telemetryflow/telemetryflow-platform) — AI-Powered Observability (Community Enterprise Observability Platform).
+Part of [TelemetryFlow Platform](https://github.com/telemetryflow/telemetryflow-platform) — AI-Powered Observability (AI-Powered Observability & Incident Response Management (IRM) Platform).
 
 ---
 
