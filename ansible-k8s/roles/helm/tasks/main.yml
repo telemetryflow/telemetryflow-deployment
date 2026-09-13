@@ -1,0 +1,200 @@
+---
+# Stage 03 — deploy the TelemetryFlow helm release via the shared
+# deploy-{env}.sh scripts (same code path as manual/scripted deploys).
+#
+# The scripts resolve chart + manifest paths relative to their own location,
+# so a bundle mirroring the repo layout is synced to the master first:
+#   {{ telemetryflow_bundle_dir }}/scripts/deploy-<env>.sh (+ install-crds.sh)
+#   {{ telemetryflow_bundle_dir }}/helm/telemetryflow/
+#   {{ telemetryflow_bundle_dir }}/helm/values/<env>/
+- name: Check installed Helm version
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - version
+      - --short
+  register: helm_installed
+  failed_when: false
+  changed_when: false
+
+- name: Install Helm v{{ helm_version }} (official tarball)
+  # get-helm-3 script installs the v3 line only — Helm 4 needs the tarball.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd /tmp
+    curl -fsSL -O https://get.helm.sh/helm-v{{ helm_version }}-linux-amd64.tar.gz
+    curl -fsSL -O https://get.helm.sh/helm-v{{ helm_version }}-linux-amd64.tar.gz.sha256sum
+    sha256sum -c helm-v{{ helm_version }}-linux-amd64.tar.gz.sha256sum
+    tar -xzf helm-v{{ helm_version }}-linux-amd64.tar.gz
+    install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+    rm -rf /tmp/helm-v{{ helm_version }}-linux-amd64.tar.gz /tmp/helm-v{{ helm_version }}-linux-amd64.tar.gz.sha256sum /tmp/linux-amd64
+    /usr/local/bin/helm version --short
+  args:
+    executable: /bin/bash
+  when: helm_installed is failed or helm_version not in helm_installed.stdout
+
+- name: Check local chart exists
+  ansible.builtin.stat:
+    path: "{{ telemetryflow_chart_path }}/Chart.yaml"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: chart_dir
+
+- name: Fail when chart is missing
+  ansible.builtin.fail:
+    msg: "Chart not found at {{ telemetryflow_chart_path }} (expected helm/telemetryflow in this repo)"
+  when: not chart_dir.stat.exists
+
+- name: Check deploy script exists
+  ansible.builtin.stat:
+    path: "{{ telemetryflow_scripts_path }}/deploy-{{ telemetryflow_env }}.sh"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: deploy_script
+
+- name: Fail when deploy script is missing
+  ansible.builtin.fail:
+    msg: "Deploy script not found: {{ telemetryflow_scripts_path }}/deploy-{{ telemetryflow_env }}.sh (env: demo|staging|production)"
+  when: not deploy_script.stat.exists
+
+- name: Check values overlay exists
+  ansible.builtin.stat:
+    path: "{{ telemetryflow_chart_path }}/../values/{{ telemetryflow_env }}/tfo-{{ telemetryflow_env }}.yaml"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: values_file
+
+- name: Fail when values overlay is missing
+  ansible.builtin.fail:
+    msg: "Values overlay not found: helm/values/{{ telemetryflow_env }}/tfo-{{ telemetryflow_env }}.yaml"
+  when: not values_file.stat.exists
+
+- name: Clean stale deployment bundle
+  # copy merges directories — removed templates/values would survive on the
+  # master and break rendering (stale files referencing deleted values keys).
+  ansible.builtin.file:
+    path: "{{ telemetryflow_bundle_dir }}"
+    state: absent
+
+- name: Create bundle directories on master
+  ansible.builtin.file:
+    path: "{{ telemetryflow_bundle_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - scripts
+    - "helm/values/{{ telemetryflow_env }}"
+
+- name: Sync deployment bundle (chart)
+  ansible.builtin.copy:
+    src: "{{ telemetryflow_chart_path }}/"
+    dest: "{{ telemetryflow_bundle_dir }}/helm/telemetryflow/"
+
+- name: Sync deployment bundle (values overlay)
+  ansible.builtin.copy:
+    src: "{{ telemetryflow_chart_path }}/../values/{{ telemetryflow_env }}/"
+    dest: "{{ telemetryflow_bundle_dir }}/helm/values/{{ telemetryflow_env }}/"
+
+- name: Sync deployment bundle (scripts)
+  ansible.builtin.copy:
+    src: "{{ telemetryflow_scripts_path }}/{{ item }}"
+    dest: "{{ telemetryflow_bundle_dir }}/scripts/{{ item }}"
+    mode: "0755"
+  loop:
+    - "deploy-{{ telemetryflow_env }}.sh"
+    - install-crds.sh
+
+- name: Uninstall previous release (demo starts clean)
+  # Demo redeployments must not inherit state from a previous run: the seeds
+  # re-run and stale resources are removed with the release.
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - uninstall
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+      - --namespace
+      - "{{ telemetryflow_namespace }}"
+      - --wait
+      - "{{ telemetryflow_release_name }}"
+  register: uninstall_result
+  changed_when: "'uninstalled' in uninstall_result.stdout"
+  failed_when:
+    - uninstall_result.rc != 0
+    - "'Release not found' not in uninstall_result.stderr"
+    - "'release: not found' not in uninstall_result.stderr"
+    - "'Release not loaded' not in uninstall_result.stderr"
+  when: telemetryflow_uninstall_first | bool
+
+- name: Delete leftover PVCs (demo clean slate)
+  # helm uninstall keeps StatefulSet PVCs — with persisted data the demo seeds
+  # are NOT idempotent (fixed UUIDs + wrong ON CONFLICT target) and crash on
+  # duplicate keys. A clean demo wipes the data with the release.
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin | default('/var/lib/rancher/rke2/bin/kubectl') }}"
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+      - delete
+      - pvc
+      - --all
+      - --namespace
+      - "{{ telemetryflow_namespace }}"
+  register: pvc_wipe
+  changed_when: "'deleted' in pvc_wipe.stdout"
+  failed_when:
+    - pvc_wipe.rc != 0
+    - "'No resources found' not in pvc_wipe.stderr"
+  when: telemetryflow_uninstall_first | bool
+
+- name: Fetch ECR login token (controller)
+  # The deploy script runs on the master, which has no AWS credentials —
+  # the token must come from the operator's machine.
+  ansible.builtin.command:
+    argv:
+      - aws
+      - ecr
+      - get-login-password
+      - --region
+      - "{{ ecr_region | default('ap-southeast-1') }}"
+      - --profile
+      - "{{ ecr_profile | default('<AWS_ACCOUNT_ID>_AdministratorAccess') }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: ecr_token
+  changed_when: false
+  failed_when: ecr_token.rc != 0 or ecr_token.stdout | length < 100
+
+- name: Run deploy script ({{ telemetryflow_env }})
+  # SKIP_COLLECTORS=1: per-cluster collector releases are managed by
+  # scripts/deploy-tfo-collectors.sh, not by the platform pipeline.
+  ansible.builtin.shell: |
+    set -o pipefail
+    SKIP_COLLECTORS=1 bash {{ telemetryflow_bundle_dir }}/scripts/deploy-{{ telemetryflow_env }}.sh
+  args:
+    executable: /bin/bash
+  environment:
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+    ECR_PASSWORD: "{{ ecr_token.stdout }}"
+    # RKE2's bundled kubectl is not on the default PATH for non-login shells.
+    PATH: /var/lib/rancher/rke2/bin:/usr/local/bin:/usr/bin:/bin
+  register: deploy_result
+  changed_when: "'Deployment complete.' in deploy_result.stdout or 'upgrade' in deploy_result.stdout | lower"
+
+- name: Verify TelemetryFlow release
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - status
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+      - "{{ telemetryflow_release_name }}"
+      - --namespace
+      - "{{ telemetryflow_namespace }}"
+  register: status_result
+  changed_when: false
+  failed_when: "'deployed' not in status_result.stdout"
