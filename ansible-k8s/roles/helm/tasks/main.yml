@@ -159,9 +159,9 @@
       - ecr
       - get-login-password
       - --region
-      - "{{ ecr_region | default('ap-southeast-1') }}"
+      - "{{ ecr_region | default('{AWS_DEFAULT_REGION}') }}"
       - --profile
-      - "{{ ecr_profile | default('<AWS_ACCOUNT_ID>_AdministratorAccess') }}"
+      - "{{ ecr_profile | default('{AWS_ACCOUNT_ID}_AdministratorAccess') }}"
   delegate_to: localhost
   become: false
   run_once: true

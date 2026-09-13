@@ -93,7 +93,7 @@ if [[ -n "${ECR_PASSWORD:-}" ]]; then
   EXTRA_ARGS+=(--set "imagePullSecrets.ecr.password=${ECR_PASSWORD}")
 elif command -v aws >/dev/null 2>&1; then
   echo "==> Refreshing ECR login token..."
-  ECR_PASSWORD="$(aws ecr get-login-password --region "${AWS_REGION:-ap-southeast-1}" --profile "${AWS_PROFILE:-<AWS_ACCOUNT_ID>_AdministratorAccess}" 2>/dev/null || true)"
+  ECR_PASSWORD="$(aws ecr get-login-password --region "${AWS_REGION:-"{AWS_DEFAULT_REGION}"}" --profile "${AWS_PROFILE:-"{AWS_ACCOUNT_ID}_AdministratorAccess"}" 2>/dev/null || true)"
   if [[ -n "${ECR_PASSWORD}" ]]; then
     EXTRA_ARGS+=(--set "imagePullSecrets.ecr.password=${ECR_PASSWORD}")
     echo "==> ECR token injected (imagePullSecrets.ecr.password)"

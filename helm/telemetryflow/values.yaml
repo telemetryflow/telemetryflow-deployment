@@ -2602,7 +2602,7 @@ imagePullSecrets:
   ecr:
     enabled: false
     name: telemetryflow-ecr-secret
-    registry: ""              # e.g. {AWS_ACCOUNT_ID}.dkr.ecr.ap-southeast-1.amazonaws.com
+    registry: ""              # e.g. {AWS_ACCOUNT_ID}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com
     username: "AWS"           # fixed for ECR basic auth
     # password: ""            # output of: aws ecr get-login-password
     # email: ""

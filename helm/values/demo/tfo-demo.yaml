@@ -348,7 +348,7 @@ tfoBackend:
   replicas: 1
 
   image:
-    repository: AWS_ACCOUNT_ID}.dkr.ecr.ap-southeast-1.amazonaws.com/telemetryflow/telemetryflow-platform
+    repository: "{AWS_ACCOUNT_ID}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/telemetryflow/telemetryflow-platform"
     tag: "latest"
     pullPolicy: Always
 
@@ -677,7 +677,7 @@ tfoViz:
   replicas: 1  # reduced from 2 — single replica sufficient for staging/demo
 
   image:
-    repository: "{AWS_ACCOUNT_ID}.dkr.ecr.ap-southeast-1.amazonaws.com/telemetryflow/telemetryflow-viz"
+    repository: "{AWS_ACCOUNT_ID}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/telemetryflow/telemetryflow-viz"
     tag: "latest"
     pullPolicy: Always
 

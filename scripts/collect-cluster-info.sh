@@ -17,8 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT_BASE="$ROOT_DIR/ansible-k8s/artifacts/cluster"
 
-AWS_PROFILE="${AWS_PROFILE:-<AWS_ACCOUNT_ID>_AdministratorAccess}"
-AWS_REGION="${AWS_REGION:-ap-southeast-1}"
+AWS_PROFILE="${AWS_PROFILE:-"{AWS_ACCOUNT_ID}_AdministratorAccess"}"
+AWS_REGION="${AWS_REGION:-"{AWS_DEFAULT_REGION}"}"
 SSH_KEY="${SSH_KEY:-$ROOT_DIR/ansible-k8s/keys/tfo-ec2-demo-key.pem}"
 SSH_USER="${SSH_USER:-admin}"
 
