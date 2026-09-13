@@ -9,23 +9,29 @@
 #   helm upgrade --install telemetryflow \
 #     helm/telemetryflow \
 #     -f helm/telemetryflow/values.yaml \
-#     -f helm/values/staging/tfo-staging.yaml \
+#     -f helm/values/demo/tfo-demo.yaml \
 #     -n observability --create-namespace
 #
 # Topology : 1 Master + 3 Workers — single replica per service
 # Purpose  : Customer-facing demo with pre-seeded data
-# Domain   : platform-staging.telemetryflow.id               (frontend)
-#            api-staging.telemetryflow.id           (backend)
-#            bullboard-staging.telemetryflow.id     (queue monitor)
-#
-# Affinity Strategy (RKE2 Single DC):
-#   Uses kubernetes.io/hostname topologyKey (not AZ) — no cross-AZ billing on RKE2.
-#   Goal: reduce inter-node hops for synchronous-path services.
-#   Chain: postgresql (anchor) ← tfoBackend (preferred hostname co-location)
-#                              ← bullmq-master, clickhouse, cacheRedis (preferred)
-#                              ← tfoCollector (preferred, follows tfo-backend)
-#                              ← tfoViz (preferred, follows tfo-backend)
+# Domain   : platform-demo.telemetryflow.id               (frontend)
+#            api-demo.telemetryflow.id           (backend)
+#            bullboard-demo.telemetryflow.id     (queue monitor)
 ##############################################################################
+
+##############################################################################
+# Registry: backend + viz images from the private ECR registry.
+# The chart creates the dockerconfigjson secret (imagePullSecrets.ecr) and
+# injects it into every workload. The ECR token expires (~12h) — deploy-demo.sh
+# refreshes it with `aws ecr get-login-password` at deploy time.
+##############################################################################
+imagePullSecrets:
+  ecr:
+    enabled: true
+    name: telemetryflow-ecr-secret
+    registry: "{AWS_ACCOUNT_ID}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com"
+    username: "AWS"
+    # password: injected via --set at deploy time (do NOT commit a token)
 
 global:
   environment: staging
@@ -35,7 +41,7 @@ global:
   imagePullPolicy: Always
   imagePullSecrets: []
 
-  domain: platform-staging.telemetryflow.id
+  domain: platform-demo.telemetryflow.id
 
   tls:
     enabled: false
@@ -67,17 +73,15 @@ tfoAgent:
 
   # initContainers:
   #   waitForBackend:
-  #     url: "http://api-staging.telemetryflow.id"
+  #     url: "http://api-demo.telemetryflow.id"
 
   resources:
     requests:
-      cpu: "100m"
-      memory: "256Mi"
+      cpu: "50m"
+      memory: "128Mi"
     limits:
-      # tfo-agent 1.3.2's cAdvisor collector floods ~4k series/node/15s —
-      # agents OOMKilled at 256Mi within seconds on busy nodes.
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: "200m"
+      memory: "256Mi"
 
   # Remove BPF/PERFMON caps — not required without eBPF receiver
   containerSecurityContext:
@@ -103,14 +107,8 @@ tfoAgent:
           units: [kubelet, containerd]
         kubernetes:
           enabled: true
-          log_path: "/var/log/containers/*_telemetryflow_*.log"  # scope to telemetryflow namespace only
+          log_path: "/var/log/containers/*_telemetryflow_*.log"
         custom_filters:
-          # Exclude tfo-backend/tfo-collector stdout: OTEL_LOGS_ENABLED=true already ships those via OTLP
-          - properties:
-              name: grep
-              match: "kube.*"
-              exclude: "kubernetes.pod_name ^(tfo-backend|tfo-collector)-"
-          # Exclude health/readiness probe access logs — high-volume, zero signal
           - properties:
               name: grep
               match: "kube.*"
@@ -164,15 +162,12 @@ tfoCollector:
     pullPolicy: Always
 
   resources:
-    # Percentage memory_limiter (80% of limit) must absorb peak pipeline
-    # usage — at 1Gi the effective ceiling (~820Mi) refused agent batches
-    # with HTTP 500 during bursts.
     requests:
-      cpu: "250m"
-      memory: "1Gi"
+      cpu: "100m"
+      memory: "256Mi"
     limits:
-      cpu: "1"
-      memory: "4Gi"
+      cpu: "500m"
+      memory: "1Gi"
 
   persistence:
     enabled: true
@@ -199,7 +194,8 @@ tfoCollector:
             - job_name: nats-exporter
               scrape_interval: 60s
               static_configs:
-                - targets: ["nats-exporter.observability.svc.cluster.local:7777"]
+                - targets:
+                    ["nats-exporter.observability.svc.cluster.local:7777"]
                   labels:
                     service: nats
                     component: messaging
@@ -207,7 +203,8 @@ tfoCollector:
             - job_name: postgres-exporter
               scrape_interval: 60s
               static_configs:
-                - targets: ["postgres-exporter.observability.svc.cluster.local:9187"]
+                - targets:
+                    ["postgres-exporter.observability.svc.cluster.local:9187"]
                   labels:
                     service: postgresql
                     component: database
@@ -215,7 +212,8 @@ tfoCollector:
             - job_name: clickhouse-exporter
               scrape_interval: 60s
               static_configs:
-                - targets: ["clickhouse-exporter.observability.svc.cluster.local:9363"]
+                - targets:
+                    ["clickhouse-exporter.observability.svc.cluster.local:9363"]
                   labels:
                     service: clickhouse
                     component: analytics
@@ -234,6 +232,14 @@ tfoCollector:
         timeout: 60s
         send_batch_size: 1000
         send_batch_max_size: 2000
+      transform/service_name:
+        error_mode: ignore
+        log_statements:
+          - context: resource
+            statements:
+              - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil or attributes["service.name"] == "unknown"
+              - set(attributes["service.name"], attributes["app"]) where attributes["service.name"] == nil or attributes["service.name"] == "unknown"
+              - set(attributes["service.name"], attributes["k8s.pod.name"]) where attributes["service.name"] == nil or attributes["service.name"] == "unknown"
       memory_limiter:
         # Percentage-based (of the 4Gi container limit) — the old static
         # limit_mib: 768 kept refusing data at ~750Mi even with a 4Gi limit
@@ -241,14 +247,6 @@ tfoCollector:
         limit_percentage: 80
         spike_limit_percentage: 25
         check_interval: 1s
-      transform/service_name:
-        error_mode: ignore
-        log_statements:
-          - context: resource
-            statements:
-              - set(attributes["service.name"], attributes["k8s.deployment.name"]) where attributes["service.name"] == nil and attributes["k8s.deployment.name"] != nil
-              - set(attributes["service.name"], attributes["app"]) where attributes["service.name"] == nil and attributes["app"] != nil
-              - set(attributes["service.name"], attributes["k8s.pod.name"]) where attributes["service.name"] == nil and attributes["k8s.pod.name"] != nil
     exporters:
       otlp_http/backend:
         endpoint: "http://tfo-backend.observability.svc.cluster.local:3100"
@@ -330,18 +328,14 @@ tfoCollector:
           exporters: [debug, otlp_http/backend]
 
   # -- Co-locate collector with tfo-backend on same node — collector→backend is high-frequency.
-  # RKE2 single DC: same-node placement reduces inter-node latency with no AZ billing cost.
   affinity:
     podAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
           podAffinityTerm:
             labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values:
-                    - tfo-backend
+              matchLabels:
+                app.kubernetes.io/name: tfo-backend
             topologyKey: kubernetes.io/hostname
 
   nodeSelector:
@@ -354,7 +348,7 @@ tfoBackend:
   replicas: 1
 
   image:
-    repository: telemetryflow/telemetryflow-platform
+    repository: AWS_ACCOUNT_ID}.dkr.ecr.ap-southeast-1.amazonaws.com/telemetryflow/telemetryflow-platform
     tag: "latest"
     pullPolicy: Always
 
@@ -388,7 +382,7 @@ tfoBackend:
       nginx.ingress.kubernetes.io/enable-cors: "true"
       nginx.ingress.kubernetes.io/cors-allow-origin: "*"
     hosts:
-      - host: api-staging.telemetryflow.id
+      - host: api-demo.telemetryflow.id
         paths:
           - path: /
             pathType: Prefix
@@ -411,7 +405,7 @@ tfoBackend:
     LOG_LEVEL: "info"
     LOG_FORMAT: "json"
     LOGGER_TYPE: "winston"
-    LOG_PRETTY_PRINT: "false"
+    LOG_PRETTY_PRINT: "true"
     LOG_FILE_ENABLED: "false"
     CORS_ORIGIN: "*"
 
@@ -419,10 +413,10 @@ tfoBackend:
     # Source: .env-telemetryflow [7] BACKEND — OPENTELEMETRY CONFIGURATION
     OTEL_SERVICE_NAME: "telemetryflow-platform"
     SERVICE_NAMESPACE: "telemetryflow"
-    SERVICE_VERSION: "1.4.2"
+    SERVICE_VERSION: "2.4.4"
     SERVICE_TEAM: "platform"
-    OTEL_ENABLED: "true"           # disabled — self-telemetry loop amplifies intra-cluster traffic in staging
-    OTEL_LOGS_ENABLED: "true"      # disabled — log export doubles traffic when OTEL_ENABLED=true
+    OTEL_ENABLED: "false"           # disabled — self-telemetry loop amplifies intra-cluster traffic in staging
+    OTEL_LOGS_ENABLED: "false"      # disabled — log export doubles traffic when OTEL_ENABLED=true
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://tfo-collector.observability.svc.cluster.local:4318"
     OTEL_COLLECTOR_ENDPOINT: "http://tfo-collector.observability.svc.cluster.local:4318"
     TELEMETRYFLOW_BACKEND_OTLP_ENDPOINT: "http://tfo-backend.observability.svc.cluster.local:3100"
@@ -463,7 +457,7 @@ tfoBackend:
     # LOKI_BATCH_INTERVAL: "5000"
     # LOKI_TIMEOUT: "10000"
     # LOKI_LABELS_APP: "telemetryflow"
-    # LOKI_LABELS_ENV: "staging"
+    # LOKI_LABELS_ENV: "demo"
 
     # ── OpenSearch (disabled) ─────────────────────────────────────────────────
     # OPENSEARCH_ENABLED: "false"
@@ -482,17 +476,17 @@ tfoBackend:
 
     # ── ClickHouse insert tuning ────────────────────────────────────────────────
     CLICKHOUSE_CONFIG_PROFILE: "default"
-    CH_INSERT_BATCH_ROWS: "1000"
-    CH_INSERT_FLUSH_MS: "1000"
+    CH_INSERT_BATCH_ROWS: "500"
+    CH_INSERT_FLUSH_MS: "2000"
 
     # ── Valkey memory ceilings (mirror cache/queue config.maxmemory) ────────────
-    VALKEY_MAX_MEMORY: "1gb"
-    QUEUE_VALKEY_MAX_MEMORY: "1gb"
+    VALKEY_MAX_MEMORY: "512mb"
+    QUEUE_VALKEY_MAX_MEMORY: "512mb"
 
     # ── Queue rate limits (jobs/sec) ────────────────────────────────────────────
-    QUEUE_OTLP_RATE_LIMIT: "500"
+    QUEUE_OTLP_RATE_LIMIT: "200"
     QUEUE_ALERT_RATE_LIMIT: "50"
-    QUEUE_AGGREGATION_RATE_LIMIT: "200"
+    QUEUE_AGGREGATION_RATE_LIMIT: "100"
 
     # ── Log file rotation ───────────────────────────────────────────────────────
     LOG_COLORIZE: "false"
@@ -522,15 +516,15 @@ tfoBackend:
     REDIS_COMMAND_TIMEOUT: "5000"
     REDIS_CONNECT_TIMEOUT: "10000"
 
-    # ── Valkey (Cache Monitoring module) ──────────────────────────────────────
+    # ── Valkey (Default L2 Cache Provider) ────────────────────────────────────
     VALKEY_HOST: "cache-valkey.observability.svc.cluster.local"
-    VALKEY_PORT: "6380"
+    VALKEY_PORT: "6379"
     VALKEY_DB: "0"
 
     NATS_URL: "nats://nats.observability.svc.cluster.local:4222"
     NATS_CLUSTER_ID: "telemetryflow-cluster"
 
-    # ── JWT / Session ─────────────────────────────────────────────────────────
+    # ── JWT / Session (relaxed for demo) ──────────────────────────────────────
     JWT_ACCESS_EXPIRY: "24h"
     JWT_REFRESH_EXPIRY: "30d"
 
@@ -581,7 +575,7 @@ tfoBackend:
     SMTP_FROM_ADDRESS: "noreply@telemetryflow.id"
     SMTP_FROM_NAME: "TelemetryFlow Platform"
     SMTP_REPLY_TO: "support@telemetryflow.id"
-    APP_URL: "https://platform-staging.telemetryflow.id"
+    APP_URL: "https://platform-demo.telemetryflow.id"
 
     # ── Telemetry Retention ────────────────────────────────────────────────────
     TELEMETRY_METRICS_RETENTION_DAYS: "15"
@@ -598,16 +592,6 @@ tfoBackend:
     AGENT_INACTIVE_THRESHOLD: "10"
     AGENT_CLEANUP_DAYS: "30"
 
-    # ── Atlas / AWS ───────────────────────────────────────────────────────────
-    ATLAS_ENCRYPTION_KEY: ""  # Set via secret: tfo-atlas-secret
-    AWS_ACCOUNT_ID: ""        # Set for AWS RDS / Aurora / DynamoDB monitoring
-
-    # ── Logging ───────────────────────────────────────────────────────────────
-    LOG_SKIP_PATHS: "/health,/metrics,/healthz,/ready"
-
-    # ── Uptime Checker ────────────────────────────────────────────────────────
-    UPTIME_CHECKER_INTERVAL_MS: "30000"  # 30s — staging doesn't need 10s granularity
-
     # ── Default Telemetry Context (TelemetryFlow) ─────────────────────────────────
     # Source: .env-telemetryflow [26] DEFAULT DEMO CONFIGURATION
     DEFAULT_REGION_CODE: "APS3"
@@ -616,6 +600,14 @@ tfoBackend:
 
     # ── Kubernetes Identity ────────────────────────────────────────────────────
     CLUSTER_NAME: "telemetryflow-staging-rke2"
+
+    # ── Atlas / AWS ───────────────────────────────────────────────────────────
+    ATLAS_ENCRYPTION_KEY: ""  # Set via secret: tfo-atlas-secret
+    AWS_ACCOUNT_ID: ""        # Set for AWS RDS / Aurora / DynamoDB monitoring
+
+    # ── HTTP Logging / Uptime ──────────────────────────────────────────────────
+    LOG_SKIP_PATHS: "/health,/metrics,/healthz,/ready"
+    UPTIME_CHECKER_INTERVAL_MS: "30000"
 
   initContainers:
     runMigrations:
@@ -652,7 +644,6 @@ tfoBackend:
     failureThreshold: 60 # 5 min for migrations + seeds
 
   # -- Prefer same node as postgresql and redis — every DB query and queue op goes here.
-  # RKE2 single DC: same-node avoids inter-node hop for synchronous-path operations.
   affinity:
     podAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
@@ -673,15 +664,7 @@ tfoBackend:
                   operator: In
                   values:
                     - redis
-                    - tfo-collector
             topologyKey: kubernetes.io/hostname
-    # -- Spread backend replicas across different nodes for HA.
-    podAntiAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        - labelSelector:
-            matchLabels:
-              app.kubernetes.io/name: tfo-backend
-          topologyKey: kubernetes.io/hostname
 
   nodeSelector:
     telemetryflow.io/role: workload
@@ -694,7 +677,7 @@ tfoViz:
   replicas: 1  # reduced from 2 — single replica sufficient for staging/demo
 
   image:
-    repository: telemetryflow/telemetryflow-viz
+    repository: "{AWS_ACCOUNT_ID}.dkr.ecr.ap-southeast-1.amazonaws.com/telemetryflow/telemetryflow-viz"
     tag: "latest"
     pullPolicy: Always
 
@@ -726,7 +709,7 @@ tfoViz:
       nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
       nginx.ingress.kubernetes.io/enable-cors: "true"
     hosts:
-      - host: platform-staging.telemetryflow.id
+      - host: platform-demo.telemetryflow.id
         paths:
           - path: /
             pathType: ImplementationSpecific
@@ -800,14 +783,17 @@ tfoViz:
     TELEMETRYFLOW_BRAND_NAME: "TelemetryFlow Observability"
     TELEMETRYFLOW_BRAND_TAGLINE: "AI-Powered Observability & Incident Response Management (IRM) Platform"
     TELEMETRYFLOW_BRAND_SHORT_NAME: "TelemetryFlow"
-    TELEMETRYFLOW_DOMAIN: "platform-staging.telemetryflow.id"
+    TELEMETRYFLOW_DOMAIN: "platform-demo.telemetryflow.id"
     # ── [3] FRONTEND — API endpoints ──────────────────────────────────────────
-    TELEMETRYFLOW_API_URL: "https://api-staging.telemetryflow.id"
-    TELEMETRYFLOW_ENDPOINT: "https://api-staging.telemetryflow.id"
-    TELEMETRYFLOW_IAM_API_URL: "https://api-staging.telemetryflow.id"
-    TELEMETRYFLOW_GRPC_URL: "https://api-staging.telemetryflow.id"
-    TELEMETRYFLOW_WS_URL: "wss://api-staging.telemetryflow.id/ws"
-    TELEMETRYFLOW_OTLP_ENDPOINT: "https://api-staging.telemetryflow.id/v2"
+    # Same-origin (empty) — the viz nginx proxies /api, /v2 and /ws to the
+    # backend/collector, so one port-forward (or one ingress domain) serves
+    # both the SPA and the API without a public api-* DNS record.
+    TELEMETRYFLOW_API_URL: ""
+    TELEMETRYFLOW_ENDPOINT: ""
+    TELEMETRYFLOW_IAM_API_URL: ""
+    TELEMETRYFLOW_GRPC_URL: ""
+    TELEMETRYFLOW_WS_URL: ""
+    TELEMETRYFLOW_OTLP_ENDPOINT: ""
     TELEMETRYFLOW_BASE_URL: "/"
 
     # ── Logo & Assets ─────────────────────────────────────────────────────────
@@ -856,7 +842,7 @@ tfoViz:
     AUTH0_DOMAIN: "your-tenant.auth0.com"
     AUTH0_CLIENT_ID: ""
     AUTH0_AUDIENCE: "https://api.telemetryflow.id"
-    AUTH0_CALLBACK_URL: "https://api.telemetryflow.id/api/sso/callback/auth0"
+    AUTH0_CALLBACK_URL: "https://api-demo.telemetryflow.id/api/sso/callback/auth0"
 
     TELEMETRYFLOW_RECAPTCHA_SITE_KEY: ""
 
@@ -885,7 +871,7 @@ tfoViz:
 ##############################################################################
 # BullMQ / Redis — minimal single-master, board UI enabled
 # noeviction policy maintained — BullMQ requires all keys to persist
-# Board ingress: bullboard-staging.telemetryflow.id → tfo-backend:3100/admin/queues (app-root redirect)
+# Board ingress: bullboard-demo.telemetryflow.id → tfo-backend:3100/admin/queues (app-root redirect)
 #
 # OOM Mitigation (fixed in 1.4.0):
 #   - maxmemory raised to 2560mb (was 384mb in live ConfigMap — helm drift)
@@ -900,7 +886,7 @@ bullmq:
     standalone: true # Board embedded in tfo-backend at /admin/queues
     ingress:
       enabled: true
-      host: "bullboard-staging.telemetryflow.id"
+      host: "bullboard-demo.telemetryflow.id"
 
   nodeSelector:
     telemetryflow.io/role: workload
@@ -1184,32 +1170,61 @@ cacheRedis:
     telemetryflow.io/role: workload
 
 ##############################################################################
-# Secrets — Staging: create: false
+# Secrets — TelemetryFlow credentials
+# Source: .env-telemetryflow [16] API KEYS, JWT & SESSION
 #
-# NEVER commit real secrets to this file. Provision all secrets BEFORE
-# deploying via external-secrets/Vault or manually:
-#
-#   bash scripts/generate-secrets.sh          # generates & creates k8s secrets
-#   kubectl create secret generic ...         # or create manually
-#
-# Required secrets: tfo-backend-secrets, tfo-agent-secret, tfo-redis-secret,
-# tfo-postgresql-secret, tfo-clickhouse-secret, tfo-nats-secret
+# WARNING: Secrets below are taken from .env-telemetryflow for demo use.
+#          MUST be rotated before granting external access.
+#          For production: set secrets.create=false and use external-secrets.
 ##############################################################################
 secrets:
-  create: false
+  create: true
 
   tfoBackend:
     name: tfo-backend-secrets
+    data:
+      # Database
+      POSTGRES_PASSWORD: "<CHANGE_ME>"
+      CLICKHOUSE_PASSWORD: "<CHANGE_ME>"
+      REDIS_PASSWORD: "<CHANGE_ME>"
+      # JWT Secrets — source: .env-telemetryflow [16]
+      JWT_SECRET: "<CHANGE_ME>"
+      JWT_REFRESH_SECRET: "<CHANGE_ME>"
+      SESSION_SECRET: "<CHANGE_ME>"
+      # Encryption Keys — source: .env-telemetryflow
+      ENCRYPTION_KEY: "<CHANGE_ME>"
+      MFA_ENCRYPTION_KEY: "<CHANGE_ME>"
+      LLM_ENCRYPTION_KEY: "<CHANGE_ME>"
+      AUTH0_CLIENT_SECRET: ""
+
   tfoAgent:
     name: tfo-agent-secret
+    data:
+      # Agent API Keys — source: .env-telemetryflow [4] AUTHENTICATION & SSO
+      TELEMETRYFLOW_API_KEY_ID: "<CHANGE_ME>"
+      TELEMETRYFLOW_API_KEY_SECRET: "<CHANGE_ME>"
+
   redis:
     name: tfo-redis-secret
+    data:
+      redis-password: ""
+
   postgresql:
     name: tfo-postgresql-secret
+    data:
+      postgres-password: "<CHANGE_ME>"
+      password: "<CHANGE_ME>"
+      replication-password: "<CHANGE_ME>"
+
   clickhouse:
     name: tfo-clickhouse-secret
+    data:
+      password: "<CHANGE_ME>"
+
   nats:
     name: tfo-nats-secret
+    data:
+      nats-password: ""
 
 ##############################################################################
 # Network Policies — disabled in staging for easier debugging
