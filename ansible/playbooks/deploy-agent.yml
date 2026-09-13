@@ -1,0 +1,5 @@
+---
+- name: Deploy agent
+  hosts: tfo_agents:tfo_platform
+  roles:
+    - role: tfo_agent_binary

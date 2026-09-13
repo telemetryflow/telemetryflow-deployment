@@ -1,0 +1,16 @@
+# ==========================================================================
+#  Module EKS: backend.tf.example
+# --------------------------------------------------------------------------
+#  Description:
+#    Store Terraform State to S3.
+#    Rename to backend.tf and edit values to match your account.
+# --------------------------------------------------------------------------
+terraform {
+  backend "s3" {
+    region         = "ap-southeast-3"
+    bucket         = "tfo-tf-state-112233445566-ap-southeast-3"
+    dynamodb_table = "tfo-ddb-tf-state-112233445566-ap-southeast-3"
+    key            = "telemetryflow/112233445566/tfo-eks/terraform.tfstate"
+    encrypt        = true
+  }
+}

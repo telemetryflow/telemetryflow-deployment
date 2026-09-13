@@ -1,0 +1,57 @@
+---
+- name: Verify prerequisites on all nodes
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Apply K8s kernel and system prerequisites
+  hosts: all
+  become: true
+  tasks:
+    - name: Disable swap
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Remove swap from fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\s+swap\s+)'
+        replace: '# \1'
+
+    - name: Load required kernel modules
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ kernel_modules }}"
+
+    - name: Persist kernel modules
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          {% for mod in kernel_modules %}
+          {{ mod }}
+          {% endfor %}
+        mode: "0644"
+
+    - name: Apply sysctl parameters
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        sysctl_set: true
+        state: present
+        reload: true
+      loop: "{{ sysctl_params }}"
+
+    - name: Ensure required packages are installed
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - nfs-common
+        state: present
+        update_cache: true

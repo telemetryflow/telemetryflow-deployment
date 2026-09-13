@@ -1,0 +1,43 @@
+write-kubeconfig-mode: "0644"
+
+{% if rke2_node_type == 'server' %}
+token: {{ rke2_token }}
+tls-san:
+  - {{ rke2_server_ip }}
+  - {{ cluster_name }}.{{ cluster_domain }}
+cluster-cidr: {{ cluster_cidr }}
+service-cidr: {{ service_cidr }}
+# Deploy the bundled local-path-provisioner (not enabled by default in newer
+# RKE2) so StatefulSets get a default StorageClass for their PVCs.
+{% if rke2_enable_local_storage | default(true) %}
+enable:
+  - rke2-local-storage
+{% endif %}
+cluster-dns: {{ cluster_dns }}
+{% if proxy_http | length > 0 %}
+environment:
+  HTTP_PROXY: "{{ proxy_http }}"
+  HTTPS_PROXY: "{{ proxy_https }}"
+  NO_PROXY: "{{ proxy_no }},{% for host in groups['all'] %}{{ hostvars[host]['ansible_host'] }},{% endfor %}"
+{% endif %}
+{% endif %}
+
+{% if rke2_node_type == 'agent' %}
+# Agents join through the supervisor port (9345), NOT the kube-apiserver (6443) —
+# the supervisor is what authenticates the shared cluster token.
+server: https://{{ rke2_server_ip }}:{{ rke2_server_port }}
+token: {{ rke2_token }}
+{% if proxy_http | length > 0 %}
+environment:
+  HTTP_PROXY: "{{ proxy_http }}"
+  HTTPS_PROXY: "{{ proxy_https }}"
+  NO_PROXY: "{{ proxy_no }},{% for host in groups['all'] %}{{ hostvars[host]['ansible_host'] }},{% endfor %}"
+{% endif %}
+{% endif %}
+
+{% if registry_mirror | length > 0 %}
+mirrors:
+  "*":
+    endpoint:
+      - "{{ registry_mirror }}"
+{% endif %}

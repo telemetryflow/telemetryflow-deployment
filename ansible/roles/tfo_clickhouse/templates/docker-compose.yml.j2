@@ -1,0 +1,40 @@
+services:
+  clickhouse:
+    image: {{ tfo_clickhouse_image }}
+    container_name: {{ tfo_clickhouse_container_name }}
+    restart: {{ tfo_clickhouse_restart_policy }}
+    environment:
+      CLICKHOUSE_USER: {{ tfo_clickhouse_user }}
+      CLICKHOUSE_PASSWORD: {{ tfo_clickhouse_password }}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_clickhouse_container_ip }}
+    ports:
+      - "{{ tfo_clickhouse_http_port }}:{{ tfo_clickhouse_http_port }}"
+      - "{{ tfo_clickhouse_tcp_port }}:{{ tfo_clickhouse_tcp_port }}"
+    volumes:
+      - {{ tfo_clickhouse_data_dir }}:/var/lib/clickhouse
+      - {{ tfo_clickhouse_logs_dir }}:/var/log/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_clickhouse_log_max_size }}"
+        max-file: "{{ tfo_clickhouse_log_max_file }}"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:{{ tfo_clickhouse_http_port }}/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.telemetryflow.service=clickhouse"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

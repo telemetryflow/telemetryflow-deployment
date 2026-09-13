@@ -1,0 +1,35 @@
+services:
+  collector:
+    image: {{ tfo_collector_image }}
+    container_name: {{ tfo_collector_container_name }}
+    restart: {{ tfo_collector_restart_policy }}
+    command: ["--config=/etc/otelcol/config.yaml"]
+    env_file:
+      - {{ tfo_collector_env_file }}
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_collector_container_ip }}
+    ports:
+      - "{{ tfo_collector_grpc_port }}:{{ tfo_collector_grpc_port }}"
+      - "{{ tfo_collector_http_port }}:{{ tfo_collector_http_port }}"
+      - "{{ tfo_collector_health_check_port }}:{{ tfo_collector_health_check_port }}"
+    volumes:
+      - {{ tfo_collector_config_file }}:/etc/otelcol/config.yaml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_collector_log_max_size }}"
+        max-file: "{{ tfo_collector_log_max_file }}"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:{{ tfo_collector_health_check_port }}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.telemetryflow.service=collector"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

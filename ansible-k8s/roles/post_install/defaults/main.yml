@@ -1,0 +1,13 @@
+---
+node_labels:
+  - key: node-role.kubernetes.io/worker
+    value: "true"
+  # The TFO helm overlays pin workload components to this label
+  # (tfo-<env>.yaml nodeSelector: telemetryflow.io/role: workload).
+  - key: telemetryflow.io/role
+    value: workload
+node_taints: []
+kubectl_timeout: 120
+# K8s node names are the system hostnames: <prefix><inventory_hostname>
+k8s_node_name_prefix: "tfo-"
+helm_binary: /usr/local/bin/helm

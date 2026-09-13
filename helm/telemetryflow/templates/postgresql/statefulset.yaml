@@ -1,0 +1,361 @@
+{{- if .Values.postgresql.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.postgresql.name }}-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  postgresql.conf: |
+    listen_addresses = '*'
+    port = 5432
+    max_connections = {{ .Values.postgresql.primary.config.maxConnections }}
+    shared_buffers = {{ .Values.postgresql.primary.config.sharedBuffers }}
+    effective_cache_size = {{ .Values.postgresql.primary.config.effectiveCacheSize }}
+    maintenance_work_mem = {{ .Values.postgresql.primary.config.maintenanceWorkMem }}
+    wal_buffers = {{ .Values.postgresql.primary.config.walBuffers }}
+    checkpoint_completion_target = {{ .Values.postgresql.primary.config.checkpointCompletionTarget }}
+    random_page_cost = {{ .Values.postgresql.primary.config.randomPageCost }}
+    effective_io_concurrency = {{ .Values.postgresql.primary.config.effectiveIOConcurrency }}
+    work_mem = {{ .Values.postgresql.primary.config.workMem }}
+    min_wal_size = {{ .Values.postgresql.primary.config.minWalSize }}
+    max_wal_size = {{ .Values.postgresql.primary.config.maxWalSize }}
+    max_worker_processes = {{ .Values.postgresql.primary.config.maxWorkerProcesses }}
+    max_parallel_workers_per_gather = {{ .Values.postgresql.primary.config.maxParallelWorkersPerGather }}
+    max_parallel_workers = {{ .Values.postgresql.primary.config.maxParallelWorkers }}
+    log_min_duration_statement = {{ .Values.postgresql.primary.config.logMinDurationStatement }}
+    log_checkpoints = {{ .Values.postgresql.primary.config.logCheckpoints }}
+    log_connections = {{ .Values.postgresql.primary.config.logConnections }}
+    log_disconnections = {{ .Values.postgresql.primary.config.logDisconnections }}
+    log_statement = '{{ .Values.postgresql.primary.config.logStatement }}'
+    # Replication
+    wal_level = replica
+    max_wal_senders = 5
+    max_replication_slots = 5
+    hot_standby = on
+  pg_hba.conf: |
+    # TYPE  DATABASE  USER  ADDRESS   METHOD
+    local   all       all              trust
+    host    all       all   0.0.0.0/0  scram-sha-256
+    host    replication all  0.0.0.0/0  scram-sha-256
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.postgresql.name }}-initdb
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  {{- range $name, $script := .Values.postgresql.initdbScripts }}
+  {{ $name }}: |
+    {{- $script | nindent 4 }}
+  {{- end }}
+---
+# Primary service (read/write)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: primary
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.postgresql.service.type }}
+  ports:
+    - name: postgresql
+      port: {{ .Values.postgresql.service.port }}
+      targetPort: postgresql
+  selector:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: primary
+---
+# Read-replica service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.name }}-read
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: read-replica
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: {{ .Values.postgresql.service.port }}
+      targetPort: postgresql
+  selector:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: read-replica
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresql.name }}-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: postgresql
+      port: {{ .Values.postgresql.service.port }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.postgresql.name }}-primary
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: primary
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Values.postgresql.name }}-headless
+  replicas: {{ .Values.postgresql.primary.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.postgresql.name }}
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.postgresql.name }}
+        app.kubernetes.io/component: primary
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.postgresql.serviceAccount.create }}
+      serviceAccountName: {{ .Values.postgresql.serviceAccount.name }}
+      automountServiceAccountToken: false
+      {{- end }}
+      {{- with .Values.postgresql.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgresql.auth.database }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.auth.username }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret }}
+                  key: {{ .Values.postgresql.auth.secretKeys.userPasswordKey }}
+            - name: POSTGRES_INITDB_ARGS
+              value: "--data-checksums"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          {{- with .Values.postgresql.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U {{ .Values.postgresql.auth.username }} -d {{ .Values.postgresql.auth.database }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U {{ .Values.postgresql.auth.username }} -d {{ .Values.postgresql.auth.database }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U {{ .Values.postgresql.auth.username }} -d {{ .Values.postgresql.auth.database }}
+            failureThreshold: 30
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.postgresql.primary.resources | nindent 12 }}
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+            - name: pg-config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+            - name: pg-config
+              mountPath: /etc/postgresql/pg_hba.conf
+              subPath: pg_hba.conf
+            - name: initdb-scripts
+              mountPath: /docker-entrypoint-initdb.d
+        {{- if .Values.postgresql.metrics.enabled }}
+        - name: postgres-exporter
+          image: "{{ .Values.postgresql.metrics.image.repository }}:{{ .Values.postgresql.metrics.image.tag }}"
+          env:
+            - name: DATA_SOURCE_URI
+              value: "localhost:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+            - name: DATA_SOURCE_USER
+              value: {{ .Values.postgresql.auth.username }}
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret }}
+                  key: {{ .Values.postgresql.auth.secretKeys.userPasswordKey }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.postgresql.metrics.port }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+        {{- end }}
+      volumes:
+        - name: pg-config
+          configMap:
+            name: {{ .Values.postgresql.name }}-config
+        - name: initdb-scripts
+          configMap:
+            name: {{ .Values.postgresql.name }}-initdb
+      {{- with .Values.postgresql.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.postgresql.primary.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.postgresql.primary.persistence.storageClass }}
+        {{- if .Values.postgresql.primary.persistence.storageClass }}
+
+        storageClassName: {{ .Values.postgresql.primary.persistence.storageClass | quote }}
+
+        {{- end }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.primary.persistence.size }}
+  {{- end }}
+---
+{{- if .Values.postgresql.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.postgresql.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  minAvailable: {{ .Values.postgresql.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.postgresql.name }}
+{{- end }}
+---
+{{- if .Values.postgresql.backup.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.postgresql.name }}-backup
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: backup
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.backup.storage.size }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.postgresql.name }}-backup
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: backup
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.postgresql.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          {{- if .Values.postgresql.serviceAccount.create }}
+          serviceAccountName: {{ .Values.postgresql.serviceAccount.name }}
+          automountServiceAccountToken: false
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-backup
+              image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - sh
+                - -c
+                - |
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  PGPASSWORD=$POSTGRES_PASSWORD pg_dump \
+                    -h {{ .Values.postgresql.name }} \
+                    -U {{ .Values.postgresql.auth.username }} \
+                    -d {{ .Values.postgresql.auth.database }} \
+                    -Fc > /backups/tfo_backup_${TIMESTAMP}.dump
+                  find /backups -name "tfo_backup_*.dump" -mtime +{{ .Values.postgresql.backup.retention }} -delete
+                  echo "Backup complete: tfo_backup_${TIMESTAMP}.dump"
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.postgresql.auth.existingSecret }}
+                      key: {{ .Values.postgresql.auth.secretKeys.userPasswordKey }}
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: {{ .Values.postgresql.name }}-backup
+{{- end }}
+{{- end }}

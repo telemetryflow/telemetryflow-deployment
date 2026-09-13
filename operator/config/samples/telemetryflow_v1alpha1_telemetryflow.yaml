@@ -1,0 +1,324 @@
+---
+apiVersion: telemetryflow.id/v1alpha1
+kind: TelemetryFlow
+metadata:
+  name: telemetryflow-sample
+  namespace: telemetryflow
+  labels:
+    app.kubernetes.io/name: telemetryflow
+    app.kubernetes.io/instance: telemetryflow-sample
+spec:
+  version: "1.4.2"
+
+  backend:
+    image: "telemetryflow/tfo-backend:1.4.2"
+    replicas: 3
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    ports:
+      - containerPort: 8080
+        name: http
+    env:
+      - name: NODE_ENV
+        value: production
+      - name: PORT
+        value: "8080"
+      - name: LOG_LEVEL
+        value: warn
+      - name: DATABASE_POOL_SIZE
+        value: "50"
+    scheduling:
+      nodeSelector:
+        kubernetes.io/os: linux
+        eks.amazonaws.com/nodegroup: telemetryflow-production
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: tfo-backend
+    service:
+      type: ClusterIP
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: nlb
+        service.beta.kubernetes.io/aws-load-balancer-internal: "false"
+    ingress:
+      enabled: true
+      className: nginx
+      host: api.telemetryflow.eks
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+        nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+      tls: true
+      tlsSecretName: telemetryflow-api-tls
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 15
+      targetCPUUtilizationPercentage: 65
+      targetMemoryUtilizationPercentage: 75
+    serviceAccount:
+      create: true
+      annotations:
+        eks.amazonaws.com/role-arn: "<CHANGE_ME>"
+
+  frontend:
+    image: "telemetryflow/tfo-viz:1.4.2"
+    replicas: 2
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    ports:
+      - containerPort: 3000
+        name: http
+    scheduling:
+      nodeSelector:
+        kubernetes.io/os: linux
+        eks.amazonaws.com/nodegroup: telemetryflow-production
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: tfo-viz
+    ingress:
+      enabled: true
+      className: nginx
+      host: telemetryflow.eks
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      tls: true
+      tlsSecretName: telemetryflow-viz-tls
+
+  collector:
+    image: "telemetryflow/telemetryflow-collector:1.2.1"
+    replicas: 3
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    persistence:
+      enabled: true
+      storageClass: gp3
+      size: "100Gi"
+    ports:
+      - containerPort: 4317
+        name: grpc
+      - containerPort: 4318
+        name: http
+      - containerPort: 8889
+        name: prometheus
+      - containerPort: 13133
+        name: health
+    env:
+      - name: TELEMETRYFLOW_ENVIRONMENT
+        value: production
+      - name: BATCH_SIZE
+        value: "16384"
+    scheduling:
+      nodeSelector:
+        kubernetes.io/os: linux
+        eks.amazonaws.com/nodegroup: telemetryflow-production
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: tfo-collector
+    service:
+      type: ClusterIP
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    serviceAccount:
+      create: true
+      annotations:
+        eks.amazonaws.com/role-arn: "<CHANGE_ME>"
+    security:
+      runAsNonRoot: true
+      runAsUser: 10001
+      runAsGroup: 10001
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      seccompProfileType: RuntimeDefault
+      dropCapabilities:
+        - ALL
+
+  agent:
+    enabled: true
+    image: "telemetryflow/telemetryflow-agent:1.2.0"
+    clusterProvider: eks
+    serviceAccount:
+      create: true
+      annotations:
+        eks.amazonaws.com/role-arn: "<CHANGE_ME>"
+    env:
+      - name: LOG_LEVEL
+        value: info
+      - name: LOG_FORMAT
+        value: json
+    scheduling:
+      nodeSelector:
+        kubernetes.io/os: linux
+        node.kubernetes.io/instance-type: m5.xlarge
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+    node:
+      enabled: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    kubernetes:
+      enabled: true
+      replicas: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+
+  postgresql:
+    image: "postgres:16-alpine"
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    persistence:
+      enabled: true
+      storageClass: gp3
+      size: "50Gi"
+    credentials:
+      name: "telemetryflow-db-credentials"
+    scheduling:
+      nodeSelector:
+        kubernetes.io/os: linux
+        eks.amazonaws.com/nodegroup: telemetryflow-db-production
+    env:
+      - name: POSTGRES_DB
+        value: telemetryflow
+      - name: POSTGRES_USER
+        value: telemetryflow
+      - name: POSTGRES_MAX_CONNECTIONS
+        value: "300"
+      - name: POSTGRES_SHARED_BUFFERS
+        value: 1GB
+
+  clickhouse:
+    image: "clickhouse/clickhouse-server:24-alpine"
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        cpu: "4"
+        memory: 16Gi
+    persistence:
+      enabled: true
+      storageClass: gp3
+      size: "200Gi"
+    scheduling:
+      nodeSelector:
+        kubernetes.io/os: linux
+        eks.amazonaws.com/nodegroup: telemetryflow-db-production
+
+  redis:
+    image: "redis:7-alpine"
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    persistence:
+      enabled: true
+      storageClass: gp3
+      size: "10Gi"
+    maxMemory: "400mb"
+    evictionPolicy: "allkeys-lru"
+
+  bullmqRedis:
+    image: "redis:7-alpine"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    persistence:
+      enabled: true
+      storageClass: gp3
+      size: "20Gi"
+    maxMemory: "800mb"
+    evictionPolicy: "noeviction"
+
+  nats:
+    image: "nats:2.10-alpine"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    persistence:
+      enabled: true
+      storageClass: gp3
+      size: "20Gi"
+    jetStreamEnabled: true
+    jetstream:
+      maxSize: 15Gi
+      maxMemory: 512Mi
+
+  ingress:
+    enabled: false
+    className: "nginx"
+    hosts:
+      - host: "telemetryflow.example.com"
+        paths:
+          - "/"
+          - "/api"
+    tlsEnabled: true
+
+  secrets:
+    create: false
+    backend:
+      name: "telemetryflow-backend-secret"
+    agent:
+      name: "telemetryflow-agent-secret"
+    collector:
+      name: "telemetryflow-collector-secret"
+    database:
+      name: "telemetryflow-db-secret"

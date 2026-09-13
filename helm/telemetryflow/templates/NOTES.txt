@@ -1,0 +1,83 @@
+═══════════════════════════════════════════════════════════════════
+  ████████╗███████╗██╗      ███████╗███╗   ███╗███████╗████████╗██████╗ ██╗   ██╗
+  ╚══██╔══╝██╔════╝██║      ██╔════╝████╗ ████║██╔════╝╚══██╔══╝██╔══██╗╚██╗ ██╔╝
+     ██║   █████╗  ██║      █████╗  ██╔████╔██║█████╗     ██║   ██████╔╝ ╚████╔╝
+     ██║   ██╔══╝  ██║      ██╔══╝  ██║╚██╔╝██║██╔══╝     ██║   ██╔══██╗  ╚██╔╝
+     ██║   ███████╗███████╗ ███████╗██║ ╚═╝ ██║███████╗   ██║   ██║  ██║   ██║
+     ╚═╝   ╚══════╝╚══════╝ ╚══════╝╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝
+     ███████╗██╗      ██████╗ ██╗    ██╗
+     ██╔════╝██║     ██╔═══██╗██║    ██║
+     █████╗  ██║     ██║   ██║██║ █╗ ██║
+     ██╔══╝  ██║     ██║   ██║██║███╗██║
+     ██║     ███████╗╚██████╔╝╚███╔███╔╝
+     ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝   v{{ .Chart.AppVersion }}
+═══════════════════════════════════════════════════════════════════
+
+TelemetryFlow has been deployed to namespace: {{ include "telemetryflow.namespace" . }}
+
+📋 DEPLOYMENT SUMMARY:
+───────────────────────────────────────────────────────────────────
+
+{{- if .Values.tfoBackend.enabled }}
+  ✅ TFO Backend (NestJS)    : {{ .Values.tfoBackend.replicas }} replicas → port {{ .Values.tfoBackend.ports.http }}
+{{- end }}
+{{- if .Values.tfoViz.enabled }}
+  ✅ TFO Viz (Vue.js)        : {{ .Values.tfoViz.replicas }} replicas → port {{ .Values.tfoViz.ports.http }}
+{{- end }}
+{{- if .Values.tfoCollector.enabled }}
+  ✅ TFO Collector (OTEL)    : {{ .Values.tfoCollector.replicas }} replicas → OTLP {{ .Values.tfoCollector.ports.otlpGrpc }}/{{ .Values.tfoCollector.ports.otlpHttp }}
+{{- end }}
+{{- if .Values.tfoAgent.enabled }}
+  ✅ TFO Agent (DaemonSet)   : Running on all worker nodes
+{{- end }}
+{{- if .Values.bullmq.enabled }}
+  ✅ Queue (BullMQ)          : {{ .Values.queueValkey.name | default "queue-valkey" }} → port 6379
+{{- end }}
+{{- if .Values.nats.enabled }}
+  ✅ NATS                    : {{ .Values.nats.replicas }}-node cluster → port {{ .Values.nats.ports.client }}
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+  ✅ PostgreSQL              : Primary + {{ .Values.postgresql.readReplica.replicas }} read replica → port {{ .Values.postgresql.service.port }}
+{{- end }}
+{{- if .Values.clickhouse.enabled }}
+  ✅ ClickHouse              : {{ .Values.clickhouse.cluster.shards }} shards × {{ .Values.clickhouse.cluster.replicasPerShard }} replica → port {{ .Values.clickhouse.ports.http }}/{{ .Values.clickhouse.ports.native }}
+  ✅ ZooKeeper               : {{ .Values.clickhouse.zookeeper.replicas }}-node ensemble
+{{- end }}
+
+🌐 ACCESS URLS:
+───────────────────────────────────────────────────────────────────
+{{- if .Values.tfoViz.ingress.enabled }}
+{{- range .Values.tfoViz.ingress.hosts }}
+  Dashboard:  http://{{ .host }}
+{{- end }}
+{{- end }}
+{{- if .Values.tfoBackend.ingress.enabled }}
+{{- range .Values.tfoBackend.ingress.hosts }}
+  API:        http://{{ .host }}
+{{- end }}
+{{- end }}
+
+📡 OTLP ENDPOINTS (send telemetry here):
+───────────────────────────────────────────────────────────────────
+  gRPC: tfo-collector:{{ .Values.tfoCollector.ports.otlpGrpc }}
+  HTTP: tfo-collector:{{ .Values.tfoCollector.ports.otlpHttp }}
+
+🔑 IMPORTANT - UPDATE SECRETS:
+───────────────────────────────────────────────────────────────────
+  ⚠️  Default passwords are set. Update secrets before production use:
+
+  kubectl -n {{ include "telemetryflow.namespace" . }} get secrets
+
+📊 VERIFY DEPLOYMENT:
+───────────────────────────────────────────────────────────────────
+  kubectl -n {{ include "telemetryflow.namespace" . }} get pods
+  kubectl -n {{ include "telemetryflow.namespace" . }} get svc
+  kubectl -n {{ include "telemetryflow.namespace" . }} get pvc
+
+🩺 HEALTH CHECKS:
+───────────────────────────────────────────────────────────────────
+  Backend:    kubectl -n {{ include "telemetryflow.namespace" . }} exec deploy/tfo-backend -- curl -s localhost:{{ .Values.tfoBackend.ports.http }}/health
+  Collector:  kubectl -n {{ include "telemetryflow.namespace" . }} exec deploy/tfo-collector -- curl -s localhost:{{ .Values.tfoCollector.ports.health }}
+  ClickHouse: kubectl -n {{ include "telemetryflow.namespace" . }} exec sts/clickhouse-shard0 -- curl -s localhost:{{ .Values.clickhouse.ports.http }}/ping
+
+═══════════════════════════════════════════════════════════════════

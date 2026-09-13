@@ -1,0 +1,21 @@
+# ==========================================================================
+#  TelemetryFlow - TFState Bootstrap: backend.tf.example
+# --------------------------------------------------------------------------
+#  Description:
+#    Store Terraform State to S3.
+#
+#    BOOTSTRAP WORKFLOW:
+#      1. Apply with LOCAL state first (keep this file as .tf.example).
+#      2. After the S3 bucket + DynamoDB table exist, rename to backend.tf.
+#      3. Run `terraform init --migrate-state` to upload the local state.
+# --------------------------------------------------------------------------
+terraform {
+  backend "s3" {
+    region         = "{AWS_DEFAULT_REGION}"
+    profile        = "{AWS_ACCOUNT_ID}_AdministratorAccess"
+    bucket         = "tfo-tf-state-{AWS_ACCOUNT_ID}-{AWS_DEFAULT_REGION}"
+    dynamodb_table = "tfo-ddb-tf-state-{AWS_ACCOUNT_ID}-{AWS_DEFAULT_REGION}"
+    key            = "telemetryflow/{AWS_ACCOUNT_ID}/tfstate/terraform.tfstate"
+    encrypt        = true
+  }
+}

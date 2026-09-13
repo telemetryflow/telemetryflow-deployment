@@ -1,0 +1,3 @@
+---
+rke2_binary_path: /usr/local/bin
+rke2_kubeconfig: "{{ rke2_config_dir }}/rke2.yaml"

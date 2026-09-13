@@ -1,0 +1,220 @@
+{{/*
+CoreDNS Prometheus Metrics Patch
+
+Ensures the CoreDNS Corefile has the "prometheus :9153" plugin enabled.
+Runs as a post-install/post-upgrade Helm hook Job so that:
+  - API Server + CoreDNS monitoring pages have data
+  - TFO Agent can scrape CoreDNS /metrics via pod IP:9153
+  - TFO Collector Prometheus SD can scrape CoreDNS endpoints
+
+Supports all distributions:
+  - Vanilla k8s / EKS / GKE / AKS: ConfigMap "coredns"
+  - RKE2:                          ConfigMap "rke2-coredns-rke2-coredns"
+  - k3s:                           ConfigMap "coredns" (custom)
+
+The script is idempotent — if "prometheus" is already present, it exits cleanly.
+After patching, it performs a rollout restart of the CoreDNS Deployment.
+*/}}
+{{- if and .Values.tfoAgent.enabled .Values.tfoAgent.corednsMetricsPatch.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tfo-coredns-patch
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: tfo-coredns-patch
+    app.kubernetes.io/component: setup
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "telemetryflow.namespace" . }}-coredns-patch
+  labels:
+    app.kubernetes.io/name: tfo-coredns-patch
+    app.kubernetes.io/component: setup
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  # Read + patch CoreDNS ConfigMap in kube-system
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "patch"]
+    resourceNames:
+      - coredns
+      - rke2-coredns-rke2-coredns
+  # Rollout restart CoreDNS Deployment
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+    resourceNames:
+      - coredns
+      - rke2-coredns-rke2-coredns
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "telemetryflow.namespace" . }}-coredns-patch
+  labels:
+    app.kubernetes.io/name: tfo-coredns-patch
+    app.kubernetes.io/component: setup
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "telemetryflow.namespace" . }}-coredns-patch
+subjects:
+  - kind: ServiceAccount
+    name: tfo-coredns-patch
+    namespace: {{ include "telemetryflow.namespace" . }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tfo-coredns-patch-{{ .Release.Revision }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: tfo-coredns-patch
+    app.kubernetes.io/component: setup
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tfo-coredns-patch
+        app.kubernetes.io/component: setup
+    spec:
+      serviceAccountName: tfo-coredns-patch
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: patch
+          image: {{ .Values.tfoAgent.corednsMetricsPatch.image | default "bitnami/kubectl:latest" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "=== TelemetryFlow CoreDNS Prometheus Metrics Patch ==="
+
+              # ── Detect CoreDNS ConfigMap name ──────────────────────────
+              CM_NAME=""
+              DEPLOY_NAME=""
+              for name in rke2-coredns-rke2-coredns coredns; do
+                if kubectl -n kube-system get configmap "$name" >/dev/null 2>&1; then
+                  CM_NAME="$name"
+                  break
+                fi
+              done
+
+              if [ -z "$CM_NAME" ]; then
+                echo "WARNING: No CoreDNS ConfigMap found in kube-system. Skipping."
+                exit 0
+              fi
+              echo "Found CoreDNS ConfigMap: $CM_NAME"
+
+              # ── Detect CoreDNS Deployment name ─────────────────────────
+              for name in rke2-coredns-rke2-coredns coredns; do
+                if kubectl -n kube-system get deployment "$name" >/dev/null 2>&1; then
+                  DEPLOY_NAME="$name"
+                  break
+                fi
+              done
+
+              # ── Check if prometheus plugin is already enabled ──────────
+              COREFILE=$(kubectl -n kube-system get configmap "$CM_NAME" -o jsonpath='{.data.Corefile}' 2>/dev/null || \
+                         kubectl -n kube-system get configmap "$CM_NAME" -o jsonpath='{.data.Corefile\.override}' 2>/dev/null || \
+                         echo "")
+
+              if [ -z "$COREFILE" ]; then
+                echo "WARNING: Could not read Corefile from ConfigMap $CM_NAME. Skipping."
+                exit 0
+              fi
+
+              if echo "$COREFILE" | grep -q "prometheus"; then
+                echo "CoreDNS Corefile already has prometheus plugin enabled. Nothing to do."
+                # Verify port 9153
+                if echo "$COREFILE" | grep -q "prometheus.*:9153"; then
+                  echo "Prometheus metrics on port 9153 confirmed."
+                else
+                  echo "NOTE: prometheus plugin found but port may differ from 9153."
+                fi
+                exit 0
+              fi
+
+              echo "Prometheus plugin NOT found in Corefile. Patching..."
+
+              # ── Patch: insert "prometheus :9153" after "ready" or "health" ──
+              # Strategy: use kubectl patch with JSON merge to update the Corefile
+              NEW_COREFILE=$(echo "$COREFILE" | sed '/^[[:space:]]*ready/a\
+                  prometheus :9153' )
+
+              # If "ready" wasn't found, try after "health"
+              if ! echo "$NEW_COREFILE" | grep -q "prometheus"; then
+                NEW_COREFILE=$(echo "$COREFILE" | sed '/^[[:space:]]*health/a\
+                  prometheus :9153' )
+              fi
+
+              # If neither found, insert after the opening brace of the first server block
+              if ! echo "$NEW_COREFILE" | grep -q "prometheus"; then
+                NEW_COREFILE=$(echo "$COREFILE" | sed '/{/a\
+                  prometheus :9153' )
+              fi
+
+              if ! echo "$NEW_COREFILE" | grep -q "prometheus"; then
+                echo "ERROR: Failed to inject prometheus plugin into Corefile."
+                exit 1
+              fi
+
+              # ── Apply patch via kubectl ────────────────────────────────
+              # Escape for JSON
+              ESCAPED=$(echo "$NEW_COREFILE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || \
+                        echo "$NEW_COREFILE" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | awk '{printf "%s\\n", $0}' | sed 's/\\n$//')
+
+              # Try Corefile key first, then Corefile.override for some k3s variants
+              if kubectl -n kube-system get configmap "$CM_NAME" -o jsonpath='{.data.Corefile}' >/dev/null 2>&1; then
+                kubectl -n kube-system patch configmap "$CM_NAME" --type merge \
+                  -p "{\"data\":{\"Corefile\":${ESCAPED}}}"
+              else
+                kubectl -n kube-system patch configmap "$CM_NAME" --type merge \
+                  -p "{\"data\":{\"Corefile.override\":${ESCAPED}}}"
+              fi
+
+              echo "CoreDNS ConfigMap patched successfully."
+
+              # ── Rollout restart CoreDNS ────────────────────────────────
+              if [ -n "$DEPLOY_NAME" ]; then
+                echo "Restarting CoreDNS deployment: $DEPLOY_NAME"
+                kubectl -n kube-system rollout restart deployment "$DEPLOY_NAME"
+                kubectl -n kube-system rollout status deployment "$DEPLOY_NAME" --timeout=60s || true
+                echo "CoreDNS restarted."
+              fi
+
+              echo "=== Done ==="
+{{- end }}

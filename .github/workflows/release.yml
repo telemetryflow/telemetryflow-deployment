@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  HELM_CHART: helm/telemetryflow
+  OPERATOR_IMG: ghcr.io/${{ github.repository }}/telemetryflow-operator
+
+jobs:
+  test:
+    name: Run CI Tests
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  helm-package:
+    name: Package & Publish Helm Chart
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.TELEMETRYFLOW_GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package Helm Chart
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          helm package "$HELM_CHART" \
+            --app-version "$VERSION" \
+            --version "$VERSION" \
+            --destination ./dist
+
+      - name: Publish to GHCR (OCI)
+        run: |
+          helm push ./dist/telemetryflow-*.tgz oci://ghcr.io/${{ github.repository }}/charts
+
+  operator-build:
+    name: Build & Push Operator Image
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: operator/go.sum
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.TELEMETRYFLOW_GITHUB_TOKEN }}
+
+      - name: Extract Version
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.OPERATOR_IMG }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build & Push Multi-Arch Operator Image
+        uses: docker/build-push-action@v5
+        with:
+          context: operator
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [helm-package, operator-build]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")"
+          if [ -n "$PREVIOUS_TAG" ]; then
+            LOG="$(git log "${PREVIOUS_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)"
+          else
+            LOG="$(git log --pretty=format:"- %s (%h)" --no-merges -20)"
+          fi
+          {
+            echo "changelog<<EOF"
+            echo "$LOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Changes
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Artifacts
+            - Helm chart published to `oci://ghcr.io/${{ github.repository }}/charts/telemetryflow`
+            - Operator image: `${{ env.OPERATOR_IMG }}:${{ github.ref_name }}`
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}

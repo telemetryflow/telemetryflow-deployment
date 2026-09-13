@@ -1,0 +1,150 @@
+{{- if .Values.queueValkey.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: queue-valkey-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: queue-valkey
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  valkey.conf: |
+    bind 0.0.0.0
+    port 6379
+    {{- range $key, $value := .Values.queueValkey.config }}
+    {{ $key }} {{ $value }}
+    {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: queue-valkey
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: queue-valkey
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: queue-valkey
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: queue-valkey
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: queue-valkey
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  serviceName: queue-valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: queue-valkey
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: queue-valkey
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: valkey
+          image: "{{ .Values.queueValkey.image.repository }}:{{ .Values.queueValkey.image.tag }}"
+          imagePullPolicy: {{ .Values.queueValkey.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              valkey-server /etc/valkey/valkey.conf \
+                --requirepass "$VALKEY_PASSWORD" \
+                --masterauth "$VALKEY_PASSWORD"
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.valkey.name | default .Values.secrets.redis.name }}
+                  key: valkey-password
+          ports:
+            - name: valkey
+              containerPort: 6379
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - valkey-cli -a "$VALKEY_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - valkey-cli -a "$VALKEY_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.queueValkey.resources | nindent 12 }}
+          volumeMounts:
+            - name: queue-valkey-data
+              mountPath: /data
+            - name: queue-valkey-config
+              mountPath: /etc/valkey
+      {{- with .Values.queueValkey.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.queueValkey.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: queue-valkey-config
+          configMap:
+            name: queue-valkey-config
+        {{- if not .Values.queueValkey.persistence.enabled }}
+        - name: queue-valkey-data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.queueValkey.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: queue-valkey-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.queueValkey.persistence.storageClass }}
+        {{- if .Values.queueValkey.persistence.storageClass }}
+
+        storageClassName: {{ .Values.queueValkey.persistence.storageClass | quote }}
+
+        {{- end }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.queueValkey.persistence.size }}
+  {{- end }}
+{{- end }}

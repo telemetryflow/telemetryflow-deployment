@@ -1,0 +1,160 @@
+##############################################################################
+# TFO Agent — Staging (telemetryflow-staging-rke2) overrides
+# DaemonSet (tfo-agent): per-node OS metrics via node_exporter
+# Deployment (tfo-agent-k8s): single-replica K8s state collector + sync
+# Namespace: observability
+# Endpoint:  https://api-staging.telemetryflow.id/api/v2
+##############################################################################
+
+global:
+  clusterName: telemetryflow-staging-rke2
+  environment: staging
+
+tfoAgent:
+  image:
+    pullPolicy: Always
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+  # Remove BPF/PERFMON caps — not required without eBPF receiver
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+      add: ["SYS_PTRACE"]
+
+  config:
+    telemetryflow:
+      tls:
+        skip_verify: false
+    # OTLP exporter — telemetry goes to the TFO platform collector (staging),
+    # which then forwards to tfo-backend. Only heartbeat and K8s state sync talk
+    # to the backend directly (see remoteServices.backend below).
+    # /v2/* because this agent carries a TFO API key — the collector's v2 receiver
+    # authenticates via the TFO headers and resolves the tenant from the key.
+    exporter:
+      otlp:
+        enabled: true
+        metrics:
+          enabled: true
+          endpoint: "https://collector-staging.telemetryflow.id/v2/metrics"
+        traces:
+          enabled: true
+          endpoint: "https://collector-staging.telemetryflow.id/v2/traces"
+        logs:
+          enabled: true
+          endpoint: "https://collector-staging.telemetryflow.id/v2/logs"
+
+    agent:
+      labels:                      # labels attached to metrics
+        env: staging
+        platform: telemetryflow
+        source: rke2
+
+    collectors:
+      node_exporter:
+        interval: 60s
+      cadvisor:
+        tls_skip_verify: true
+      ebpf:
+        enabled: false
+      fluent_bit:
+        enabled: true
+        tail:
+          paths: ["/var/log/syslog", "/var/log/messages"]
+        systemd:
+          units: [kubelet, containerd]
+        kubernetes:
+          enabled: true
+          log_path: "/var/log/containers/*_observability_*.log"
+        custom_filters:
+          - properties:
+              name: grep
+              match: "kube.*"
+              exclude: "log .*(GET|HEAD) /(health|healthz|metrics|ready)"
+          - properties:
+              name: record_modifier
+              match: "*"
+              record: "env staging"
+          - properties:
+              name: record_modifier
+              match: "*"
+              record: "platform telemetryflow"
+          - properties:
+              name: record_modifier
+              match: "*"
+              record: "source rke2"
+
+  # Remote endpoints — TelemetryFlow staging (external, HTTPS)
+  remoteServices:
+    backend:
+      name: api-staging.telemetryflow.id
+      port: 443
+    # Platform collector (staging). The effective destination for telemetry is
+    # exporter.otlp.*.endpoint above; keep the two in sync by hand.
+    collector:
+      name: collector-staging.telemetryflow.id
+      port: 443
+
+  # Kubernetes cluster monitoring — single-replica Deployment (tfo-agent-k8s)
+  kubernetes:
+    enabled: true
+    clusterProvider: rancher
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    config:
+      telemetryflow:
+        tls:
+          skip_verify: false
+      exporter:
+        otlp:
+          enabled: true
+          metrics:
+            enabled: true
+            endpoint: "https://collector-staging.telemetryflow.id/v2/metrics"
+          traces:
+            enabled: true
+            endpoint: "https://collector-staging.telemetryflow.id/v2/traces"
+          logs:
+            enabled: true
+            endpoint: "https://collector-staging.telemetryflow.id/v2/logs"
+      collectors:
+        kubernetes:
+          sync_interval: 60s
+          metrics_api: true
+          exclude_namespaces: []
+          apiserver_metrics: true
+          coredns_metrics: true
+          coredns_service: ""
+          container_extended_metrics: true
+          pv_io_stats: true
+          cluster_name: "telemetryflow-staging-rke2"
+          cluster_provider: "rancher"
+          cluster_id: ""
+
+##############################################################################
+# Secrets — TelemetryFlow credentials
+#
+# Staging does NOT create secrets from this file. Provision the secret out of
+# band before deploying:
+#
+#   kubectl -n observability create secret generic tfo-agent-secrets \
+#     --from-literal=TELEMETRYFLOW_API_KEY_ID='<key id from TFO Platform > API Keys>' \
+#     --from-literal=TELEMETRYFLOW_API_KEY_SECRET='<secret from TFO Platform > API Keys>'
+##############################################################################
+secrets:
+  create: false
+  tfoAgent:
+    name: tfo-agent-secrets

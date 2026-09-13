@@ -1,0 +1,43 @@
+---
+- name: Create valkey directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_valkey_data_dir }}"
+
+- name: Deploy valkey docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_valkey_compose_file }}"
+    mode: "0644"
+  notify: restart tfo valkey
+
+- name: Pull valkey image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_valkey_image }}"
+    image: "{{ tfo_valkey_image }}"
+  tags: [pull]
+
+- name: Start valkey
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.valkey.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]
+
+- name: Wait for valkey to accept connections
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ tfo_valkey_container_name }}
+      valkey-cli -a {{ tfo_valkey_password }} ping
+  register: _valkey_ready
+  until: "'PONG' in _valkey_ready.stdout"
+  retries: 15
+  delay: 2
+  changed_when: false
+  tags: [healthcheck]

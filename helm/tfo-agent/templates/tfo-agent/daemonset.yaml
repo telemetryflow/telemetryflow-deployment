@@ -1,0 +1,480 @@
+{{- if .Values.tfoAgent.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.tfoAgent.serviceAccount.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+    app.kubernetes.io/component: agent
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+  {{- with .Values.tfoAgent.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: true
+---
+{{- if .Values.tfoAgent.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "telemetryflow.namespace" . }}-{{ .Values.tfoAgent.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+    app.kubernetes.io/component: agent
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.tfoAgent.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "telemetryflow.namespace" . }}-{{ .Values.tfoAgent.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+    app.kubernetes.io/component: agent
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "telemetryflow.namespace" . }}-{{ .Values.tfoAgent.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.tfoAgent.serviceAccount.name }}
+    namespace: {{ include "telemetryflow.namespace" . }}
+{{- end }}
+---
+# ConfigMap: node DaemonSet config (node_exporter on, kubernetes off)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.tfoAgent.name }}-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+    app.kubernetes.io/component: agent
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  tfo-agent.yaml: |
+    {{- toYaml .Values.tfoAgent.config | nindent 4 }}
+---
+{{- if .Values.tfoAgent.kubernetes.enabled }}
+# ConfigMap: K8s cluster collector Deployment config (kubernetes on, node_exporter off)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.tfoAgent.name }}-k8s-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+    app.kubernetes.io/component: k8s-collector
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  tfo-agent.yaml: |
+    {{- toYaml .Values.tfoAgent.kubernetes.config | nindent 4 }}
+---
+{{- end }}
+# DaemonSet: one pod per node — node_exporter / OS-level metrics
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Values.tfoAgent.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+    app.kubernetes.io/component: agent
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: agent
+      annotations:
+        checksum/config: {{ toYaml .Values.tfoAgent.config | sha256sum }}
+        checksum/image: {{ printf "%s:%s" .Values.tfoAgent.image.repository .Values.tfoAgent.image.tag | sha256sum }}
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ .Values.tfoAgent.serviceAccount.name }}
+      automountServiceAccountToken: true
+      hostNetwork: {{ .Values.tfoAgent.hostNetwork }}
+      dnsPolicy: {{ .Values.tfoAgent.dnsPolicy }}
+      priorityClassName: system-node-critical
+      {{- with .Values.tfoAgent.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tfoAgent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $backendUrl := .Values.tfoAgent.initContainers.waitForBackend.url | default (printf "http://%s:%d" .Values.tfoBackend.name (.Values.tfoBackend.ports.http | int)) }}
+      {{- $collectorUrl := .Values.tfoAgent.initContainers.waitForCollector.url | default (printf "http://%s:%d" .Values.tfoCollector.name (.Values.tfoCollector.ports.health | int)) }}
+      # Startup order: tfo-backend → tfo-collector → tfo-agent
+      initContainers:
+        - name: wait-for-backend
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- {{ $backendUrl }}/health >/dev/null 2>&1; do
+                echo "Waiting for tfo-backend..."; sleep 5
+              done
+              echo "tfo-backend is ready."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        - name: wait-for-collector
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- {{ $collectorUrl }}/ >/dev/null 2>&1; do
+                echo "Waiting for tfo-collector..."; sleep 5
+              done
+              echo "tfo-collector is ready."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: tfo-agent
+          image: "{{ .Values.tfoAgent.image.repository }}:{{ .Values.tfoAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoAgent.image.pullPolicy }}
+          args:
+            - "--config=/conf/tfo-agent.yaml"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: CLUSTER_NAME
+              value: {{ .Values.global.clusterName | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment | quote }}
+            # Backend API endpoint — DB Monitoring, QAN, instance registration
+            - name: TELEMETRYFLOW_BACKEND_ENDPOINT
+              value: {{ .Values.tfoAgent.endpoints.backend | default (printf "http://%s:%d/api/v2" .Values.tfoBackend.name (.Values.tfoBackend.ports.http | int)) | quote }}
+            # OTLP collector endpoint — telemetry ingestion (metrics, logs, traces)
+            - name: TELEMETRYFLOW_ENDPOINT
+              value: {{ .Values.tfoAgent.endpoints.otlp | default (printf "http://%s:%d" .Values.tfoCollector.name (.Values.tfoCollector.ports.otlpHttp | int)) | quote }}
+            - name: TELEMETRYFLOW_API_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.tfoAgent.name }}
+                  key: TELEMETRYFLOW_API_KEY_ID
+            - name: TELEMETRYFLOW_API_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.tfoAgent.name }}
+                  key: TELEMETRYFLOW_API_KEY_SECRET
+            # Per-workload collector toggles (override YAML config)
+            - name: TELEMETRYFLOW_NODE_EXPORTER_ENABLED
+              value: "true"
+            - name: TELEMETRYFLOW_K8S_ENABLED
+              value: "false"
+            # Prometheus /metrics server (used for liveness/readiness probes)
+            - name: TELEMETRYFLOW_PROMETHEUS_ENABLED
+              value: "true"
+            - name: TELEMETRYFLOW_PROMETHEUS_PORT
+              value: {{ .Values.tfoAgent.ports.metrics | quote }}
+          ports:
+            - containerPort: {{ .Values.tfoAgent.ports.otlpGrpc }}
+              name: otlp-grpc
+              hostPort: {{ .Values.tfoAgent.ports.otlpGrpc }}
+              protocol: TCP
+            - containerPort: {{ .Values.tfoAgent.ports.otlpHttp }}
+              name: otlp-http
+              hostPort: {{ .Values.tfoAgent.ports.otlpHttp }}
+              protocol: TCP
+            - containerPort: {{ .Values.tfoAgent.ports.metrics }}
+              name: metrics
+              protocol: TCP
+            - containerPort: {{ .Values.tfoAgent.ports.health }}
+              name: health
+              protocol: TCP
+            {{- if .Values.tfoAgent.config.collectors.remote_write_receiver.enabled }}
+            - containerPort: {{ .Values.tfoAgent.ports.remoteWriteReceiver }}
+              name: rw-receiver
+              hostPort: {{ .Values.tfoAgent.ports.remoteWriteReceiver }}
+              protocol: TCP
+            {{- end }}
+          {{- with .Values.tfoAgent.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # startupProbe: up to 90s (18×5s) for cold start
+          startupProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.tfoAgent.ports.metrics }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.tfoAgent.ports.metrics }}
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.tfoAgent.ports.metrics }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.tfoAgent.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            {{- toYaml .Values.tfoAgent.volumeMounts | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.tfoAgent.name }}-config
+        {{- toYaml .Values.tfoAgent.volumes | nindent 8 }}
+      {{- with .Values.tfoAgent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tfoAgent.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+{{- if .Values.tfoAgent.kubernetes.enabled }}
+# Deployment: 1 replica — K8s cluster monitoring + sync to TFO Platform
+# Auto-registers cluster via POST /api/v2/monitoring/kubernetes/clusters/agent-register
+# (find-or-create semantics — safe to restart/redeploy).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.tfoAgent.name }}-k8s
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+    app.kubernetes.io/component: k8s-collector
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: k8s-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: k8s-collector
+      annotations:
+        checksum/config: {{ toYaml .Values.tfoAgent.kubernetes.config | sha256sum }}
+        checksum/image: {{ printf "%s:%s" .Values.tfoAgent.image.repository .Values.tfoAgent.image.tag | sha256sum }}
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ .Values.tfoAgent.serviceAccount.name }}
+      automountServiceAccountToken: true
+      {{- with .Values.tfoAgent.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Startup order: tfo-backend → tfo-collector → tfo-agent-k8s
+      # Auto-registration fails if backend is not ready (k8sSync nil, K8s state never synced).
+      initContainers:
+        - name: wait-for-backend
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- {{ .Values.tfoAgent.initContainers.waitForBackend.url | default (printf "http://%s:%d" .Values.tfoBackend.name (.Values.tfoBackend.ports.http | int)) }}/health >/dev/null 2>&1; do
+                echo "Waiting for tfo-backend..."; sleep 5
+              done
+              echo "tfo-backend is ready."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        - name: wait-for-collector
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- {{ .Values.tfoAgent.initContainers.waitForCollector.url | default (printf "http://%s:%d" .Values.tfoCollector.name (.Values.tfoCollector.ports.health | int)) }}/ >/dev/null 2>&1; do
+                echo "Waiting for tfo-collector..."; sleep 5
+              done
+              echo "tfo-collector is ready."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: tfo-agent
+          image: "{{ .Values.tfoAgent.image.repository }}:{{ .Values.tfoAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoAgent.image.pullPolicy }}
+          args:
+            - "--config=/conf/tfo-agent.yaml"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CLUSTER_NAME
+              value: {{ .Values.tfoAgent.kubernetes.clusterName | default .Values.global.clusterName | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment | quote }}
+            # Backend API endpoint — DB Monitoring, QAN, cluster registration
+            - name: TELEMETRYFLOW_BACKEND_ENDPOINT
+              value: {{ .Values.tfoAgent.endpoints.backend | default (printf "http://%s:%d/api/v2" .Values.tfoBackend.name (.Values.tfoBackend.ports.http | int)) | quote }}
+            # OTLP collector endpoint — telemetry ingestion (metrics, logs, traces)
+            - name: TELEMETRYFLOW_ENDPOINT
+              value: {{ .Values.tfoAgent.endpoints.otlp | default (printf "http://%s:%d" .Values.tfoCollector.name (.Values.tfoCollector.ports.otlpHttp | int)) | quote }}
+            - name: TELEMETRYFLOW_API_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.tfoAgent.name }}
+                  key: TELEMETRYFLOW_API_KEY_ID
+            - name: TELEMETRYFLOW_API_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.tfoAgent.name }}
+                  key: TELEMETRYFLOW_API_KEY_SECRET
+            # Per-workload collector toggles
+            - name: TELEMETRYFLOW_K8S_ENABLED
+              value: "true"
+            - name: TELEMETRYFLOW_NODE_EXPORTER_ENABLED
+              value: "false"
+            # Kubernetes cluster identity
+            {{- $provider := .Values.tfoAgent.kubernetes.clusterProvider | default .Values.tfoAgent.clusterProvider }}
+            {{- if $provider }}
+            - name: TELEMETRYFLOW_K8S_CLUSTER_PROVIDER
+              value: {{ $provider | quote }}
+            {{- end }}
+            - name: TELEMETRYFLOW_K8S_CLUSTER_NAME
+              value: {{ .Values.tfoAgent.kubernetes.clusterName | default .Values.global.clusterName | quote }}
+            # Prometheus /metrics server
+            - name: TELEMETRYFLOW_PROMETHEUS_ENABLED
+              value: "true"
+            - name: TELEMETRYFLOW_PROMETHEUS_PORT
+              value: {{ .Values.tfoAgent.ports.metrics | quote }}
+          ports:
+            - containerPort: {{ .Values.tfoAgent.ports.metrics }}
+              name: metrics
+              protocol: TCP
+          {{- with .Values.tfoAgent.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # startupProbe: 90s budget for first-boot cluster auto-registration call
+          startupProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.tfoAgent.ports.metrics }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.tfoAgent.ports.metrics }}
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.tfoAgent.ports.metrics }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.tfoAgent.kubernetes.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            # Writable scratch for the export retry buffer (rootfs is read-only)
+            - name: agent-buffer
+              mountPath: /var/lib/tfo-agent/buffer
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.tfoAgent.name }}-k8s-config
+        - name: agent-buffer
+          emptyDir: {}
+      {{- with .Values.tfoAgent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+---
+{{- if .Values.tfoAgent.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.tfoAgent.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  minAvailable: {{ .Values.tfoAgent.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.tfoAgent.name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end }}

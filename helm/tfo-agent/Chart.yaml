@@ -1,0 +1,22 @@
+apiVersion: v2
+name: tfo-agent
+description: >-
+  TelemetryFlow (TFO) Agent — installable on any monitored source cluster.
+  Deploys the per-node DaemonSet (node_exporter, cAdvisor, Fluent Bit) and
+  the single-replica tfo-agent-k8s Deployment (K8s state collector +
+  cluster auto-registration). Telemetry is exported to a TFO collector;
+  heartbeat and K8s sync talk to the TFO backend API.
+type: application
+version: "1.0.0"
+appVersion: "2.5.8"
+home: https://github.com/telemetryflow
+icon: https://telemetryflow.io/logo.png
+maintainers:
+  - name: TelemetryFlow Team
+    email: support@telemetryflow.id
+keywords:
+  - observability
+  - opentelemetry
+  - otlp
+  - agent
+  - monitoring

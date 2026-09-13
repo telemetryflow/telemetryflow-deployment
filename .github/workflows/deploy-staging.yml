@@ -1,0 +1,94 @@
+# Deploy Staging
+#
+# Triggered after CI passes on the develop branch.
+# Uses GitHub Environment "staging" with protection rules:
+#   - Required reviewers: enabled (designated reviewers must approve)
+#   - Wait timer: 2 minutes before allowing approval
+#
+# APPROVAL EMAIL NOTIFICATION:
+#   GitHub automatically sends email notifications to all designated environment
+#   reviewers when a deployment is pending approval. No additional email config
+#   is needed. Configure reviewers in: Settings > Environments > staging > Required reviewers
+
+name: Deploy Staging
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [develop]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HELM_CHART: helm/telemetryflow
+  RELEASE_NAME: telemetryflow
+  NAMESPACE: telemetryflow
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      # Protection rules configured in GitHub Settings > Environments:
+      #   - Required reviewers: enabled
+      #   - Wait timer: 2 minutes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Install CRDs
+        run: bash scripts/install-crds.sh
+
+      - name: Deploy via Helm
+        run: |
+          helm upgrade "$RELEASE_NAME" "$HELM_CHART" \
+            --install \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            -f helm/telemetryflow/values.yaml \
+            -f manifest/tfo-staging.yaml \
+            --timeout 5m \
+            --wait \
+            --history-max 10
+
+      - name: Smoke Test
+        run: |
+          BACKEND_URL="$(kubectl get svc "$RELEASE_NAME"-tfo-backend -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "No external IP found, skipping smoke test"
+            exit 0
+          fi
+          HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" "http://${BACKEND_URL}:8080/health/live" --max-time 10 || echo "000")"
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "::warning::Smoke test returned HTTP $HTTP_CODE"
+          else
+            echo "Smoke test passed (HTTP 200)"
+          fi
+
+      - name: Print Pod Status
+        if: always()
+        run: kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/instance="$RELEASE_NAME"
+
+      - name: Cleanup kubeconfig
+        if: always()
+        run: rm -f "$HOME/.kube/config"

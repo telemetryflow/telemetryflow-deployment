@@ -1,0 +1,189 @@
+{{- if and .Values.bullmq.enabled .Values.bullmq.board.enabled }}
+---
+##############################################################################
+# BullMQ Board — Deployment
+# Admin UI served directly from tfo-backend at /admin/queues (BullMQAdapter).
+# This standalone container is DISABLED by default — bull-board is embedded
+# in the NestJS backend via @bull-board/express + BullMQAdapter.
+# Set bullmq.board.standalone: true to deploy the legacy separate container.
+##############################################################################
+{{- if .Values.bullmq.board.standalone }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tfo-bullboard
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: tfo-bullboard
+    app.kubernetes.io/component: queue-ui
+    app.kubernetes.io/part-of: telemetryflow
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tfo-bullboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tfo-bullboard
+        app.kubernetes.io/component: queue-ui
+        app.kubernetes.io/part-of: telemetryflow
+        {{- include "telemetryflow.labels" . | nindent 8 }}
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: bull-board
+          image: "{{ .Values.bullmq.board.image.repository }}:{{ .Values.bullmq.board.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          env:
+            - name: REDIS_HOST
+              value: "{{ .Values.queueValkey.name | default "queue-valkey" }}"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.valkey.name | default .Values.secrets.redis.name }}
+                  key: valkey-password
+            - name: QUEUES
+              value: "{{ .Values.bullmq.board.queues | default "otlp-ingestion,domain-events,telemetry-processing,alerts,notifications" }}"
+            - name: PORT
+              value: "{{ .Values.bullmq.board.port }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.bullmq.board.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+      {{- with .Values.bullmq.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+##############################################################################
+# BullMQ Board — Service
+# port-forward: kubectl port-forward svc/tfo-bullboard 3200 -n <namespace>
+##############################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: tfo-bullboard
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: tfo-bullboard
+    app.kubernetes.io/component: queue-ui
+    app.kubernetes.io/part-of: telemetryflow
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tfo-bullboard
+  ports:
+    - name: http
+      port: {{ .Values.bullmq.board.port }}
+      targetPort: http
+      protocol: TCP
+---
+{{- if .Values.bullmq.board.ingress.enabled }}
+##############################################################################
+# BullMQ Board — Ingress
+##############################################################################
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tfo-bullboard
+  namespace: {{ include "telemetryflow.namespace" . }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- with .Values.bullmq.board.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.bullmq.board.ingress.className | default "nginx" }}
+  {{- if .Values.bullmq.board.ingress.tls }}
+  tls:
+    {{- toYaml .Values.bullmq.board.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.bullmq.board.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.bullmq.board.ingress.path | default "/" }}
+            pathType: Prefix
+            backend:
+              service:
+                name: tfo-bullboard
+                port:
+                  number: {{ .Values.bullmq.board.ingress.port | default .Values.bullmq.board.port }}
+{{- end }}
+{{- end }}
+{{- if and .Values.bullmq.board.ingress.enabled (not .Values.bullmq.board.standalone) }}
+---
+##############################################################################
+# BullMQ Board — Ingress (embedded mode)
+# Routes the bullboard hostname to tfo-backend /admin/queues.
+# The app-root annotation redirects bare "/" hits to /admin/queues,
+# and all /admin/queues/* sub-paths pass through unchanged.
+##############################################################################
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tfo-bullboard-ingress
+  namespace: {{ include "telemetryflow.namespace" . }}
+  annotations:
+    nginx.ingress.kubernetes.io/app-root: /admin/queues
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- with .Values.bullmq.board.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  labels:
+    app.kubernetes.io/name: tfo-bullboard-ingress
+    app.kubernetes.io/component: queue-ui
+    app.kubernetes.io/part-of: telemetryflow
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.bullmq.board.ingress.className | default "nginx" }}
+  {{- if .Values.bullmq.board.ingress.tls }}
+  tls:
+    {{- toYaml .Values.bullmq.board.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.bullmq.board.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.tfoBackend.name }}
+                port:
+                  number: {{ .Values.tfoBackend.ports.http }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,51 @@
+---
+- name: Create postgres directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_platform_config_dir }}"
+    - "{{ tfo_postgres_data_dir }}"
+
+- name: Deploy PostgreSQL configuration
+  ansible.builtin.template:
+    src: postgresql.conf.j2
+    dest: "{{ tfo_platform_config_dir }}/postgresql.conf"
+    mode: "0644"
+  notify: restart tfo postgres
+
+- name: Deploy postgres docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_postgres_compose_file }}"
+    mode: "0644"
+  notify: restart tfo postgres
+
+- name: Pull postgres image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_postgres_image }}"
+    image: "{{ tfo_postgres_image }}"
+  tags: [pull]
+
+- name: Start postgres
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.postgres.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]
+
+- name: Wait for postgres to accept connections
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ tfo_postgres_container_name }}
+      pg_isready -U {{ tfo_postgres_user }} -d {{ tfo_postgres_db }}
+  register: _postgres_ready
+  until: _postgres_ready.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  tags: [healthcheck]

@@ -1,0 +1,36 @@
+services:
+  nats:
+    image: {{ tfo_nats_image }}
+    container_name: {{ tfo_nats_container_name }}
+    restart: {{ tfo_nats_restart_policy }}
+    command: >-
+      --server_name=telemetryflow-nats
+      --jetstream
+      --store_dir=/data
+      --http_port={{ tfo_nats_management_port }}
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_nats_container_ip }}
+    ports:
+      - "{{ tfo_nats_client_port }}:{{ tfo_nats_client_port }}"
+      - "{{ tfo_nats_management_port }}:{{ tfo_nats_management_port }}"
+    volumes:
+      - {{ tfo_nats_data_dir }}:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_nats_log_max_size }}"
+        max-file: "{{ tfo_nats_log_max_file }}"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:{{ tfo_nats_management_port }}/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.telemetryflow.service=nats"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

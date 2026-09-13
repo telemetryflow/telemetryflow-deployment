@@ -1,0 +1,4 @@
+---
+kubectl_bin: /var/lib/rancher/rke2/bin/kubectl
+kubeconfig: /etc/rancher/rke2/rke2.yaml
+helm_binary: /usr/local/bin/helm

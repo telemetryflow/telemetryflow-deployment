@@ -1,0 +1,8 @@
+---
+# agent-02 — TelemetryFlow Agent Host
+# Update ansible_host and private_ip for your environment.
+# SSH key + user come from inventory.yml (all.vars) — no passwords here.
+ansible_host: 10.0.0.11
+ansible_port: 22
+private_ip: "10.0.0.11"
+tfo_agent_name: "TFO Agent - 02"

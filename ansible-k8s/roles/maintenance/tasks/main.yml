@@ -1,0 +1,94 @@
+---
+- name: Gather cluster health
+  block:
+    - name: Get cluster component statuses
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig }}"
+          - get
+          - componentstatuses
+      changed_when: false
+      register: cs_result
+
+    - name: Get all pods across namespaces
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig }}"
+          - get
+          - pods
+          - --all-namespaces
+          - -o
+          - wide
+      changed_when: false
+      register: pods_result
+
+    - name: Get node resource usage
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig }}"
+          - top
+          - nodes
+      changed_when: false
+      register: top_result
+      failed_when: false
+
+    - name: Display cluster health summary
+      ansible.builtin.debug:
+        msg: |
+          === Component Statuses ===
+          {{ cs_result.stdout }}
+          === All Pods ===
+          {{ pods_result.stdout }}
+          {% if top_result is succeeded %}
+          === Node Resources ===
+          {{ top_result.stdout }}
+          {% endif %}
+
+    - name: Ensure backup directory exists
+      ansible.builtin.file:
+        path: "{{ backup_location }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create etcd snapshot backup
+      ansible.builtin.command:
+        argv:
+          - "{{ kubectl_bin }}"
+          - --kubeconfig
+          - "{{ kubeconfig }}"
+          - exec
+          - -n
+          - kube-system
+          - "{{ snapshot_pod }}"
+          - --
+          - etcdctl
+          - snapshot
+          - save
+          - "/var/lib/rancher/rke2/server/db/snapshots/{{ snapshot_name }}"
+      vars:
+        snapshot_name: "telemetryflow-{{ ansible_date_time.iso8601_basic_short }}"
+        snapshot_pod: rke2-etcd-{{ groups['masters'][0] }}
+      changed_when: true
+      failed_when: false
+
+    - name: Clean up old backups
+      ansible.builtin.find:
+        paths: "{{ backup_location }}"
+        age: "{{ backup_retention_days }}d"
+        patterns: ["telemetryflow-*"]
+      register: old_backups
+
+    - name: Remove old backups
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: old_backups.files | length > 0

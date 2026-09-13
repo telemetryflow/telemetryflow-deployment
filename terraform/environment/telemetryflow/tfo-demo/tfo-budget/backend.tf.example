@@ -1,0 +1,17 @@
+# ==========================================================================
+#  TelemetryFlow - TFO Budget: backend.tf.example
+# --------------------------------------------------------------------------
+#  Copy to backend.tf and edit bucket/key for your AWS account.
+#  NOTE: backend.tf is gitignored — never commit real account IDs.
+# ==========================================================================
+
+terraform {
+  backend "s3" {
+    region         = "{AWS_DEFAULT_REGION}"
+    profile        = "{AWS_ACCOUNT_ID}_AdministratorAccess"
+    bucket         = "tfo-tf-state-{AWS_ACCOUNT_ID}-{AWS_DEFAULT_REGION}"
+    dynamodb_table = "tfo-ddb-tf-state-{AWS_ACCOUNT_ID}-{AWS_DEFAULT_REGION}"
+    key            = "telemetryflow/{AWS_ACCOUNT_ID}/budget/terraform.tfstate"
+    encrypt        = true
+  }
+}

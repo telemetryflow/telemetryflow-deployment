@@ -1,0 +1,6 @@
+---
+- name: Post-install configuration
+  hosts: masters[0]
+  become: true
+  roles:
+    - post_install

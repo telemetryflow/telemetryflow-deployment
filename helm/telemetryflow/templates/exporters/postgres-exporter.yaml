@@ -1,0 +1,65 @@
+{{- if and .Values.postgresql.metrics.enabled .Values.exporters.postgresql.enabled }}
+---
+##############################################################################
+# PostgreSQL Exporter — Service
+# Exposes postgres-exporter sidecar from postgresql-primary StatefulSet.
+# Scraped by tfo-collector prometheus/infra receiver → metrics/infra pipeline.
+##############################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.exporters.postgresql.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.postgresql.name }}
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/part-of: telemetryflow
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.exporters.postgresql.port | quote }}
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ .Values.postgresql.name }}
+    app.kubernetes.io/component: primary
+  ports:
+    - name: metrics
+      port: {{ .Values.exporters.postgresql.port }}
+      targetPort: {{ .Values.exporters.postgresql.port }}
+      protocol: TCP
+---
+{{- if and .Values.monitoring.enabled .Values.monitoring.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Values.exporters.postgresql.name }}
+  namespace: {{ .Values.monitoring.serviceMonitor.namespace | default (include "telemetryflow.namespace" .) }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.exporters.postgresql.name }}
+    app.kubernetes.io/component: exporter
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ include "telemetryflow.namespace" . }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.exporters.postgresql.name }}
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__address__]
+          targetLabel: instance
+        - targetLabel: service
+          replacement: postgresql
+        - targetLabel: component
+          replacement: database
+{{- end }}
+{{- end }}

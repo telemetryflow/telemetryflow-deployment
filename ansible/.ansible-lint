@@ -1,0 +1,11 @@
+---
+exclude_paths:
+  - keys/
+  - templates/.gitkeep
+  - host_vars/.gitkeep
+
+skip_list:
+  - var-naming[no-role-prefix]
+
+use_default_rules: true
+verbosity: 1

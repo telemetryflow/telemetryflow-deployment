@@ -1,0 +1,42 @@
+---
+# TelemetryFlow Deployment Inventory (VM / Docker-Compose stack)
+# Update all placeholder IPs (10.x.x.x) to match your environment.
+# SSH uses the same key pair as the RKE2 stack (Debian images → user 'admin').
+
+all:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+    # Single source of truth: the key is stored under ansible-k8s/keys/.
+    # Copy or symlink it here if this stack gets its own key pair later.
+    ansible_ssh_private_key_file: "{{ inventory_dir }}/../ansible-k8s/keys/tfo-example-demo.pem"
+
+tfo_agents:
+  hosts:
+    agent-01:
+      ansible_host: 10.0.0.10
+      ansible_user: admin
+    agent-02:
+      ansible_host: 10.0.0.11
+      ansible_user: admin
+
+tfo_platform:
+  children:
+    tfo_node:
+      hosts:
+        platform-node:
+          ansible_host: 10.0.1.10
+          ansible_user: admin
+          tfo_platform_role: node
+    tfo_db:
+      hosts:
+        platform-db:
+          ansible_host: 10.0.1.20
+          ansible_user: admin
+          tfo_platform_role: db
+    tfo_clickhouse:
+      hosts:
+        platform-clickhouse:
+          ansible_host: 10.0.1.30
+          ansible_user: admin
+          tfo_platform_role: clickhouse

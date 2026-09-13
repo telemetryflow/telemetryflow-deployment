@@ -19,7 +19,7 @@ cluster. RKE2 ships the engine only — the Rancher UI is a separate Helm chart
 kubectl must reach the cluster — see [CLUSTER-ACCESS.md](./CLUSTER-ACCESS.md):
 
 ```bash
-ssh -i ansible-k8s/keys/tfo-ec2-demo-key.pem \
+ssh -i ansible-k8s/keys/tfo-example-demo.pem \
     -N -L 6443:127.0.0.1:6443 admin@54.179.48.79 &
 export KUBECONFIG=$(ls -t ansible-k8s/artifacts/cluster/*/kubeconfig | head -1)
 kubectl get nodes

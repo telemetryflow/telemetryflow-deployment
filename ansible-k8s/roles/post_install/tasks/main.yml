@@ -1,0 +1,160 @@
+---
+- name: Fetch kubeconfig from first master
+  ansible.builtin.fetch:
+    src: "{{ kubeconfig }}"
+    dest: "{{ playbook_dir }}/../kubeconfig"
+    flat: true
+    mode: "0600"
+
+- name: Wait for all nodes to be Ready
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - wait
+      - --for=condition=Ready
+      - node
+      - --all
+      - --timeout={{ kubectl_timeout }}s
+  changed_when: false
+
+- name: Apply node labels
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - label
+      - node
+      - "{{ k8s_node_name_prefix }}{{ item[0] }}"
+      - "{{ item[1].key }}={{ item[1].value }}"
+      - --overwrite
+  # product() yields (inventory_hostname, label) tuples — item[0] is the host,
+  # item[1] the label spec. K8s node names are the system hostnames
+  # (<prefix><inventory_hostname>), not the inventory names themselves.
+  loop: "{{ groups['workers'] | product(node_labels) | list }}"
+  loop_control:
+    label: "{{ item[0] }} -> {{ item[1].key }}"
+  when: node_labels | length > 0
+  changed_when: true
+
+- name: Apply node taints
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - taint
+      - node
+      - "{{ taint.node }}"
+      - "{{ taint.key }}={{ taint.value }}:{{ taint.effect }}"
+      - --overwrite
+  loop: "{{ node_taints }}"
+  loop_control:
+    label: "{{ taint.node }} -> {{ taint.key }}"
+  vars:
+    taint: "{{ item }}"
+  when: node_taints | length > 0
+  changed_when: true
+
+- name: Ensure EBS CSI driver repo
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - repo
+      - add
+      - aws-ebs-csi-driver
+      - https://kubernetes-sigs.github.io/aws-ebs-csi-driver/
+  register: csi_repo
+  changed_when: "'has been added' in csi_repo.stdout"
+  failed_when:
+    - csi_repo.rc != 0
+    - "'already exists' not in csi_repo.stderr"
+
+- name: Install EBS CSI driver (gp3 volumes)
+  # RKE2 ships no cloud provider: nodes have no providerID and IMDS is the
+  # only reliable metadata source for the driver (hop limit 2 is set in
+  # Terraform metadata_options).
+  ansible.builtin.command:
+    argv:
+      - "{{ helm_binary }}"
+      - upgrade
+      - --install
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - --namespace
+      - kube-system
+      - --set
+      - node.metadataSources=imds
+      - --wait
+      - --timeout
+      - 6m
+      - aws-ebs-csi-driver
+      - aws-ebs-csi-driver/aws-ebs-csi-driver
+  register: csi_install
+  changed_when: "'deployed' in csi_install.stdout"
+
+- name: Stage gp3 StorageClass manifest
+  ansible.builtin.copy:
+    dest: /tmp/gp3-storageclass.yaml
+    mode: "0644"
+    content: |
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: gp3
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+      provisioner: ebs.csi.aws.com
+      parameters:
+        type: gp3
+        fsType: ext4
+        iops: "3000"
+        throughput: "125"
+      reclaimPolicy: Delete
+      volumeBindingMode: WaitForFirstConsumer
+      allowVolumeExpansion: true
+
+- name: Create gp3 StorageClass (default)
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - apply
+      - -f
+      - /tmp/gp3-storageclass.yaml
+  register: gp3_sc
+  changed_when: "'configured' in gp3_sc.stdout or 'created' in gp3_sc.stdout"
+
+- name: Demote local-path from default StorageClass
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - patch
+      - storageclass
+      - local-path
+      - -p
+      - '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+  register: lp_sc
+  changed_when: "'patched' in lp_sc.stdout"
+
+- name: Display cluster node status
+  ansible.builtin.command:
+    argv:
+      - "{{ kubectl_bin }}"
+      - --kubeconfig
+      - "{{ kubeconfig }}"
+      - get
+      - nodes
+      - -o
+      - wide
+  changed_when: false
+  register: nodes_output
+
+- name: Show node status
+  ansible.builtin.debug:
+    msg: "{{ nodes_output.stdout_lines }}"

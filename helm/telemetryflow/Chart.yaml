@@ -1,0 +1,29 @@
+apiVersion: v2
+name: telemetryflow
+description: >-
+  TelemetryFlow (TFO) - Enterprise-grade observability platform for metrics,
+  logs, and traces. 100% OTLP compliant with multi-tenancy, RBAC, and
+  high-performance ClickHouse analytics.
+type: application
+version: "2.1.0"
+appVersion: "2.5.8"
+home: https://github.com/telemetryflow
+icon: https://telemetryflow.io/logo.png
+maintainers:
+  - name: TelemetryFlow Team
+    email: support@telemetryflow.id
+keywords:
+  - observability
+  - opentelemetry
+  - otlp
+  - metrics
+  - logs
+  - traces
+  - monitoring
+  - clickhouse
+  - nestjs
+  - vuejs
+sources:
+  - https://github.com/telemetryflow/telemetryflow-platform
+  - https://github.com/telemetryflow/telemetryflow-viz
+dependencies: []

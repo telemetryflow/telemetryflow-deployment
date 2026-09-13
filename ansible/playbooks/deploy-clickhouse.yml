@@ -1,0 +1,5 @@
+---
+- name: Deploy ClickHouse
+  hosts: tfo_clickhouse
+  roles:
+    - role: tfo_clickhouse

@@ -1,0 +1,38 @@
+---
+- name: Stop agent service
+  ansible.builtin.systemd:
+    name: "{{ tfo_agent_service_name }}"
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Remove agent systemd service file
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ tfo_agent_service_name }}.service"
+    state: absent
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Remove agent install directory
+  ansible.builtin.file:
+    path: "{{ tfo_agent_install_dir }}"
+    state: absent
+
+- name: Remove agent config directory
+  ansible.builtin.file:
+    path: "{{ tfo_agent_config_dir }}"
+    state: absent
+
+- name: Remove agent log directory
+  ansible.builtin.file:
+    path: "{{ tfo_agent_log_dir }}"
+    state: absent
+
+- name: Remove agent user and group
+  ansible.builtin.user:
+    name: "{{ tfo_agent_user }}"
+    state: absent
+    remove: true
+  failed_when: false

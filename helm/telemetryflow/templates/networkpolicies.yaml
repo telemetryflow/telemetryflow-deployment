@@ -1,0 +1,239 @@
+{{- if .Values.networkPolicies.enabled }}
+---
+# Allow backend to access databases, Redis, NATS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tfo-backend-egress
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tfo-backend
+  policyTypes:
+    - Egress
+  egress:
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - port: 5432
+          protocol: TCP
+    # ClickHouse
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: clickhouse
+      ports:
+        - port: 8123
+          protocol: TCP
+        - port: 9000
+          protocol: TCP
+    # Redis (BullMQ)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    # NATS
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    # DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Allow collector to access ClickHouse, backend, exporters, K8s API, and CoreDNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tfo-collector-egress
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tfo-collector
+  policyTypes:
+    - Egress
+  egress:
+    # ClickHouse (native + HTTP)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: clickhouse
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 8123
+          protocol: TCP
+    # Backend (OTLP gRPC + REST for prometheus remote write)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tfo-backend
+      ports:
+        - port: 4317
+          protocol: TCP
+        - port: 3100
+          protocol: TCP
+    # Infrastructure Prometheus exporters (redis, nats, postgres, clickhouse)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 9121
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - port: 7777
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - port: 9187
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: clickhouse
+      ports:
+        - port: 9363
+          protocol: TCP
+    # CoreDNS metrics (kube-system pods, port 9153)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 9153
+          protocol: TCP
+    # Kubernetes API Server (endpointslice SD + apiserver scrape)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Allow agent to send to collector and backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tfo-agent-egress
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tfo-agent
+  policyTypes:
+    - Egress
+  egress:
+    # OTLP to collector (DaemonSet node metrics)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tfo-collector
+      ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+    # REST API to backend (K8s state sync, heartbeat, cluster registration)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tfo-backend
+      ports:
+        - port: 3100
+          protocol: TCP
+    # Kubernetes API Server (K8s collector cluster state collection)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # Kubelet stats/proxy (node metrics, cAdvisor, pod logs)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 10250
+          protocol: TCP
+    # CoreDNS metrics (apiserver/coredns collectors scrape kube-system pods)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 9153
+          protocol: TCP
+    # DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Allow frontend to access backend only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tfo-viz-egress
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tfo-viz
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tfo-backend
+      ports:
+        - port: 3100
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tfo-collector
+      ports:
+        - port: 4318
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+{{- end }}

@@ -1,0 +1,17 @@
+# ==========================================================================
+#  TelemetryFlow - TFO EC2: backend.tf.example
+# --------------------------------------------------------------------------
+#  Description:
+#    Store Terraform State to S3.
+#    Rename to backend.tf and edit values to match your account.
+# --------------------------------------------------------------------------
+terraform {
+  backend "s3" {
+    region         = "{AWS_DEFAULT_REGION}"
+    profile        = "{AWS_ACCOUNT_ID}_AdministratorAccess"
+    bucket         = "tfo-tf-state-{AWS_ACCOUNT_ID}-{AWS_DEFAULT_REGION}"
+    dynamodb_table = "tfo-ddb-tf-state-{AWS_ACCOUNT_ID}-{AWS_DEFAULT_REGION}"
+    key            = "telemetryflow/{AWS_ACCOUNT_ID}/tfo-ec2/terraform.tfstate"
+    encrypt        = true
+  }
+}

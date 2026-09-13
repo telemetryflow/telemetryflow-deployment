@@ -1,0 +1,174 @@
+##############################################################################
+# TFO Agent — Production (telemetryflow-prod-rke2) overrides
+# DaemonSet (tfo-agent): per-node OS metrics via node_exporter
+# Deployment (tfo-agent-k8s): single-replica K8s state collector + sync
+# Namespace: observability
+# Endpoint:  https://api.telemetryflow.id/api/v2
+##############################################################################
+
+global:
+  clusterName: telemetryflow-prod-rke2
+  environment: production
+
+tfoAgent:
+  image:
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+  # Remove BPF/PERFMON caps — not required without eBPF receiver
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+      add: ["SYS_PTRACE"]
+
+  config:
+    # Production: verify the platform's TLS certificate. Only set skip_verify: true
+    # if the collector hostname is genuinely not covered by the served cert.
+    # NOTE: the effective key is telemetryflow.tls.skip_verify — the OTLP exporter
+    # config has no skip-verify field.
+    telemetryflow:
+      tls:
+        skip_verify: false
+    # OTLP exporter — telemetry goes to the TFO platform collector, which then
+    # forwards to tfo-backend. Only heartbeat and K8s state sync talk to the
+    # backend directly (see remoteServices.backend below).
+    # /v2/* because this agent carries a TFO API key — the collector's v2 receiver
+    # authenticates via the TFO headers and resolves the tenant from the key.
+    exporter:
+      otlp:
+        enabled: true
+        metrics:
+          enabled: true
+          endpoint: "https://collector.telemetryflow.id/v2/metrics"
+        traces:
+          enabled: true
+          endpoint: "https://collector.telemetryflow.id/v2/traces"
+        logs:
+          enabled: true
+          endpoint: "https://collector.telemetryflow.id/v2/logs"
+
+    agent:
+      labels:                      # labels attached to metrics
+        env: prod
+        platform: telemetryflow
+        source: rke2
+
+    collectors:
+      node_exporter:
+        interval: 60s
+      # Kubelet serves /metrics/cadvisor with a cert signed by the cluster's internal
+      # CA, which is not in the agent's trust store — scrapes fail with x509 "unknown
+      # authority" and all container_* metrics are lost. Note this is a separate knob
+      # from telemetryflow.tls.skip_verify above, which only covers the OTLP export path.
+      cadvisor:
+        tls_skip_verify: true
+      ebpf:
+        enabled: false
+      fluent_bit:
+        enabled: true
+        tail:
+          paths: ["/var/log/syslog", "/var/log/messages"]
+        systemd:
+          units: [kubelet, containerd]
+        kubernetes:
+          enabled: true
+          log_path: "/var/log/containers/*_observability_*.log"
+        custom_filters:
+          - properties:
+              name: grep
+              match: "kube.*"
+              exclude: "log .*(GET|HEAD) /(health|healthz|metrics|ready)"
+          - properties:
+              name: record_modifier
+              match: "*"
+              record: "env prod"
+          - properties:
+              name: record_modifier
+              match: "*"
+              record: "platform telemetryflow"
+          - properties:
+              name: record_modifier
+              match: "*"
+              record: "source rke2"
+
+  # Remote endpoints — TelemetryFlow production (external, HTTPS)
+  # Port 443 → telemetryflow.backendEndpoint helper renders https:// and omits the port
+  remoteServices:
+    backend:
+      name: api.telemetryflow.id
+      port: 443
+    # Platform collector. Note: the chart has no helper for this value — it is
+    # documentation only. The effective destination for telemetry is
+    # exporter.otlp.*.endpoint above; keep the two in sync by hand.
+    collector:
+      name: collector.telemetryflow.id
+      port: 443
+
+  # Kubernetes cluster monitoring — single-replica Deployment (tfo-agent-k8s)
+  kubernetes:
+    enabled: true
+    clusterProvider: rancher
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    config:
+      telemetryflow:
+        tls:
+          skip_verify: false
+      # Same routing as the DaemonSet: telemetry to the platform collector.
+      # The K8s state sync and heartbeat this Deployment performs still go to
+      # the backend directly.
+      exporter:
+        otlp:
+          enabled: true
+          metrics:
+            enabled: true
+            endpoint: "https://collector.telemetryflow.id/v2/metrics"
+          traces:
+            enabled: true
+            endpoint: "https://collector.telemetryflow.id/v2/traces"
+          logs:
+            enabled: true
+            endpoint: "https://collector.telemetryflow.id/v2/logs"
+      collectors:
+        kubernetes:
+          sync_interval: 60s
+          metrics_api: true
+          exclude_namespaces: []
+          apiserver_metrics: true
+          coredns_metrics: true
+          coredns_service: ""
+          container_extended_metrics: true
+          pv_io_stats: true
+          cluster_name: "telemetryflow-prod-rke2"
+          cluster_provider: "rancher"
+          cluster_id: ""
+
+##############################################################################
+# Secrets — TelemetryFlow credentials
+#
+# Production does NOT create secrets from this file: credentials must never be
+# committed. Provision the secret out of band (external-secrets / sealed-secrets
+# / kubectl) before deploying.
+#
+#   kubectl -n observability create secret generic tfo-agent-secrets \
+#     --from-literal=TELEMETRYFLOW_API_KEY_ID='<key id from TFO Platform > API Keys>' \
+#     --from-literal=TELEMETRYFLOW_API_KEY_SECRET='<secret from TFO Platform > API Keys>'
+##############################################################################
+secrets:
+  create: false
+  tfoAgent:
+    name: tfo-agent-secrets

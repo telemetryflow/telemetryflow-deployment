@@ -1,0 +1,294 @@
+{{- if .Values.tfoCollector.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.tfoCollector.serviceAccount.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+    app.kubernetes.io/component: collector
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+  {{- with .Values.tfoCollector.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.tfoCollector.name }}-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  collector.yaml: |
+    {{- toYaml .Values.tfoCollector.config | nindent 4 }}
+---
+# Headless service for StatefulSet DNS (pod-stable hostnames)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.tfoCollector.name }}-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+    app.kubernetes.io/component: collector
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: otlp-grpc
+      port: {{ .Values.tfoCollector.ports.otlpGrpc }}
+    - name: otlp-http
+      port: {{ .Values.tfoCollector.ports.otlpHttp }}
+    - name: metrics
+      port: {{ .Values.tfoCollector.ports.metrics }}
+    - name: prometheus
+      port: {{ .Values.tfoCollector.ports.prometheus }}
+    - name: health
+      port: {{ .Values.tfoCollector.ports.health }}
+    - name: zpages
+      port: {{ .Values.tfoCollector.ports.zpages }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+# Client-facing service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.tfoCollector.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.tfoCollector.service.type }}
+  ports:
+    - name: otlp-grpc
+      port: {{ .Values.tfoCollector.ports.otlpGrpc }}
+      targetPort: {{ .Values.tfoCollector.ports.otlpGrpc }}
+      protocol: TCP
+    - name: otlp-http
+      port: {{ .Values.tfoCollector.ports.otlpHttp }}
+      targetPort: {{ .Values.tfoCollector.ports.otlpHttp }}
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.tfoCollector.ports.metrics }}
+      targetPort: {{ .Values.tfoCollector.ports.metrics }}
+      protocol: TCP
+    - name: prometheus
+      port: {{ .Values.tfoCollector.ports.prometheus }}
+      targetPort: {{ .Values.tfoCollector.ports.prometheus }}
+      protocol: TCP
+    - name: health
+      port: {{ .Values.tfoCollector.ports.health }}
+      targetPort: {{ .Values.tfoCollector.ports.health }}
+      protocol: TCP
+    - name: zpages
+      port: {{ .Values.tfoCollector.ports.zpages }}
+      targetPort: {{ .Values.tfoCollector.ports.zpages }}
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.tfoCollector.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+    app.kubernetes.io/component: collector
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Values.tfoCollector.name }}-headless
+  replicas: {{ .Values.tfoCollector.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: collector
+      annotations:
+        checksum/config: {{ toYaml .Values.tfoCollector.config | sha256sum }}
+        checksum/image: {{ printf "%s:%s" .Values.tfoCollector.image.repository .Values.tfoCollector.image.tag | sha256sum }}
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ .Values.tfoCollector.serviceAccount.name }}
+      automountServiceAccountToken: true
+      {{- with .Values.tfoCollector.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: otel-collector
+          image: "{{ .Values.tfoCollector.image.repository }}:{{ .Values.tfoCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoCollector.image.pullPolicy }}
+          args:
+            - "--config=/conf/collector.yaml"
+          env:
+            - name: CLUSTER_NAME
+              value: {{ .Values.global.clusterName | quote }}
+            - name: ENVIRONMENT
+              value: {{ .Values.global.environment | quote }}
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- if .Values.tfoCollector.envFromSecrets }}
+          envFrom:
+            {{- range .Values.tfoCollector.envFromSecrets }}
+            - secretRef:
+                name: {{ .name }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.tfoCollector.ports.otlpGrpc }}
+              name: otlp-grpc
+              protocol: TCP
+            - containerPort: {{ .Values.tfoCollector.ports.otlpHttp }}
+              name: otlp-http
+              protocol: TCP
+            - containerPort: {{ .Values.tfoCollector.ports.metrics }}
+              name: metrics
+              protocol: TCP
+            - containerPort: {{ .Values.tfoCollector.ports.prometheus }}
+              name: prometheus
+              protocol: TCP
+            - containerPort: {{ .Values.tfoCollector.ports.health }}
+              name: health
+              protocol: TCP
+            - containerPort: {{ .Values.tfoCollector.ports.zpages }}
+              name: zpages
+              protocol: TCP
+          {{- with .Values.tfoCollector.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.tfoCollector.ports.health }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.tfoCollector.ports.health }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.tfoCollector.ports.health }}
+            failureThreshold: 30
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.tfoCollector.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            {{- if .Values.tfoCollector.persistence.enabled }}
+            - name: storage
+              mountPath: {{ .Values.tfoCollector.persistence.mountPath }}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.tfoCollector.name }}-config
+      {{- with .Values.tfoCollector.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tfoCollector.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.tfoCollector.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.tfoCollector.persistence.storageClass }}
+        {{- if .Values.tfoCollector.persistence.storageClass }}
+
+        storageClassName: {{ .Values.tfoCollector.persistence.storageClass | quote }}
+
+        {{- end }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.tfoCollector.persistence.size }}
+  {{- end }}
+---
+{{- if .Values.tfoCollector.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Values.tfoCollector.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: {{ .Values.tfoCollector.name }}
+  minReplicas: {{ .Values.tfoCollector.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.tfoCollector.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.tfoCollector.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.tfoCollector.autoscaling.targetMemoryUtilizationPercentage }}
+{{- end }}
+---
+{{- if .Values.tfoCollector.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.tfoCollector.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  minAvailable: {{ .Values.tfoCollector.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.tfoCollector.name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end }}

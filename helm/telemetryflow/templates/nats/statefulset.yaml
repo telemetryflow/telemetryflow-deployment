@@ -1,0 +1,231 @@
+{{- if .Values.nats.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.nats.name }}-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+data:
+  nats.conf: |
+    # NATS Server Configuration for TelemetryFlow
+    listen: 0.0.0.0:{{ .Values.nats.ports.client }}
+    server_name: $POD_NAME
+    
+    max_payload: {{ .Values.nats.config.maxPayload }}
+    max_connections: {{ .Values.nats.config.maxConnections }}
+    write_deadline: {{ .Values.nats.config.writeDeadline | quote }}
+    
+    {{- if .Values.nats.config.cluster.enabled }}
+    cluster {
+      name: {{ .Values.nats.config.cluster.name }}
+      listen: 0.0.0.0:{{ .Values.nats.ports.cluster }}
+      routes: [
+        {{- $replicas := int .Values.nats.config.cluster.replicas }}
+        {{- range $i := until $replicas }}
+        nats://{{ $.Values.nats.name }}-{{ $i }}.{{ $.Values.nats.name }}-headless:{{ $.Values.nats.ports.cluster }}
+        {{- end }}
+      ]
+    }
+    {{- end }}
+    
+    {{- if .Values.nats.config.jetstream.enabled }}
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem: {{ .Values.nats.config.jetstream.memoryStore.maxSize }}
+      max_file: {{ .Values.nats.config.jetstream.fileStore.maxSize }}
+    }
+    {{- end }}
+    
+    {{- if .Values.nats.config.monitor.enabled }}
+    http_port: {{ .Values.nats.config.monitor.port }}
+    {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.nats.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.nats.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.nats.service.type }}
+  ports:
+    - name: client
+      port: {{ .Values.nats.ports.client }}
+      targetPort: client
+    - name: cluster
+      port: {{ .Values.nats.ports.cluster }}
+      targetPort: cluster
+    - name: monitor
+      port: {{ .Values.nats.ports.monitor }}
+      targetPort: monitor
+    - name: leafnode
+      port: {{ .Values.nats.ports.leafnode }}
+      targetPort: leafnode
+  selector:
+    app.kubernetes.io/name: {{ .Values.nats.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.nats.name }}-headless
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: client
+      port: {{ .Values.nats.ports.client }}
+    - name: cluster
+      port: {{ .Values.nats.ports.cluster }}
+    - name: monitor
+      port: {{ .Values.nats.ports.monitor }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.nats.name }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.nats.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.nats.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Values.nats.name }}-headless
+  replicas: {{ .Values.nats.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.nats.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.nats.name }}
+        app.kubernetes.io/component: messaging
+      annotations:
+        checksum/config: {{ toYaml .Values.nats.config | sha256sum }}
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.nats.serviceAccount.create }}
+      serviceAccountName: {{ .Values.nats.serviceAccount.name }}
+      automountServiceAccountToken: false
+      {{- end }}
+      {{- with .Values.nats.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nats
+          image: "{{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}"
+          imagePullPolicy: {{ .Values.nats.image.pullPolicy }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          args:
+            - "--config=/etc/nats/nats.conf"
+            - "--name=$(POD_NAME)"
+          {{- with .Values.nats.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: client
+              containerPort: {{ .Values.nats.ports.client }}
+            - name: cluster
+              containerPort: {{ .Values.nats.ports.cluster }}
+            - name: monitor
+              containerPort: {{ .Values.nats.ports.monitor }}
+            - name: leafnode
+              containerPort: {{ .Values.nats.ports.leafnode }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.nats.ports.monitor }}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz?js-enabled-only=true
+              port: {{ .Values.nats.ports.monitor }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.nats.ports.monitor }}
+            failureThreshold: 30
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            {{- if .Values.nats.persistence.enabled }}
+            - name: nats-data
+              mountPath: /data
+            {{- end }}
+        {{- if .Values.nats.exporter.enabled }}
+        - name: nats-exporter
+          image: "{{ .Values.nats.exporter.image.repository }}:{{ .Values.nats.exporter.image.tag }}"
+          args:
+            - "-connz"
+            - "-routez"
+            - "-subz"
+            - "-varz"
+            - "-jsz=all"
+            - "http://localhost:{{ .Values.nats.ports.monitor }}"
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.nats.exporter.port }}
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.nats.name }}-config
+      {{- with .Values.nats.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nats.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.nats.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: nats-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.nats.persistence.storageClass }}
+        {{- if .Values.nats.persistence.storageClass }}
+
+        storageClassName: {{ .Values.nats.persistence.storageClass | quote }}
+
+        {{- end }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.nats.persistence.size }}
+  {{- end }}
+---
+{{- if .Values.nats.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.nats.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  minAvailable: {{ .Values.nats.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.nats.name }}
+{{- end }}
+{{- end }}

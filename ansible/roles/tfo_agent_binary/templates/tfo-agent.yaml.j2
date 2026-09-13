@@ -1,0 +1,58 @@
+exporters:
+  otlp:
+    endpoint: "{{ tfo_agent_collector_host }}:{{ tfo_agent_collector_grpc_port }}"
+    tls:
+      insecure: true
+    headers:
+      x-tfo-api-key-id: "${TFO_API_KEY_ID}"
+      x-tfo-api-key-secret: "${TFO_API_KEY_SECRET}"
+
+receivers:
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+      disk:
+      filesystem:
+      load:
+      memory:
+      network:
+      paging:
+      process:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  resourcedetection:
+    detectors: [system]
+    system:
+      hostname_sources: [os]
+
+service:
+  pipelines:
+    metrics:
+      receivers: [hostmetrics, otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [otlp]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [otlp]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [otlp]
+  extensions: [health_check]
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:${TFO_AGENT_HEALTH_CHECK_PORT}

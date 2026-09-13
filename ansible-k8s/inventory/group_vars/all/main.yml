@@ -1,0 +1,53 @@
+---
+cluster_name: telemetryflow-cluster
+cluster_domain: cluster.local
+cluster_cidr: 10.42.0.0/16
+service_cidr: 10.43.0.0/16
+cluster_dns: 10.43.0.10
+
+rke2_version: v1.36.4+rke2r1
+rke2_channel: stable
+
+# Agent->server URL must use the master PRIVATE IP (intra-VPC); public IP is
+# firewalled to the VPC CIDR for 6443 and does not hairpin between instances.
+rke2_server_ip: "{{ hostvars[groups['masters'][0]]['private_ip'] | default(hostvars[groups['masters'][0]]['ansible_host']) }}"
+
+helm_version: "4.3.0"
+kubectl_version: "1.36.4"
+
+telemetryflow_namespace: observability
+# Chart is deployed from the local umbrella chart in this repo (helm/telemetryflow).
+# Values overlay: helm/values/demo/tfo-demo.yaml | tfo-staging.yaml | tfo-production.yaml
+telemetryflow_values_file: "{{ playbook_dir }}/../../helm/values/demo/tfo-demo.yaml"
+
+node_labels:
+  - key: node-role.kubernetes.io/worker
+    value: "true"
+
+node_taints: []
+
+sysctl_params:
+  - name: net.bridge.bridge-nf-call-iptables
+    value: 1
+  - name: net.bridge.bridge-nf-call-ip6tables
+    value: 1
+  - name: net.ipv4.ip_forward
+    value: 1
+
+kernel_modules:
+  - br_netfilter
+  - overlay
+  - nf_conntrack
+
+ntp_servers:
+  - pool.ntp.org
+
+proxy_http: ""
+proxy_https: ""
+proxy_no: "127.0.0.1,localhost"
+
+registry_mirror: ""
+registry_ca_cert: ""
+
+backup_location: /opt/rke2-backups
+backup_retention_days: 7

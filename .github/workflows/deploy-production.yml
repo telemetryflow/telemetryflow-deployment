@@ -1,0 +1,126 @@
+# Deploy Production
+#
+# Triggered after CI passes on the main branch.
+# Uses GitHub Environment "production" with strict protection rules:
+#   - Required reviewers: enabled (must approve before deployment proceeds)
+#   - Wait timer: 5 minutes before allowing approval
+#   - Separate environment secrets (KUBE_CONFIG_PRODUCTION)
+#
+# APPROVAL EMAIL NOTIFICATION:
+#   GitHub automatically sends email notifications to all designated environment
+#   reviewers when a deployment is pending approval. No additional email config
+#   is needed. Configure reviewers in: Settings > Environments > production > Required reviewers
+#
+# ROLLBACK:
+#   To rollback, run manually:
+#     helm rollback telemetryflow [REVISION] -n telemetryflow
+#   Or re-run this workflow from a previous commit on main.
+
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: deploy_production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HELM_CHART: helm/telemetryflow
+  RELEASE_NAME: telemetryflow
+  NAMESPACE: telemetryflow
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      # Protection rules configured in GitHub Settings > Environments:
+      #   - Required reviewers: enabled
+      #   - Wait timer: 5 minutes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Verify Required Secrets in Namespace
+        run: |
+          REQUIRED_SECRETS=(
+            "JWT_SECRET"
+            "SESSION_SECRET"
+            "ENCRYPTION_KEY"
+            "POSTGRES_PASSWORD"
+            "CLICKHOUSE_PASSWORD"
+            "REDIS_PASSWORD"
+          )
+          MISSING=0
+          for secret in "${REQUIRED_SECRETS[@]}"; do
+            if ! kubectl get secret telemetryflow-secrets -n "$NAMESPACE" -o jsonpath="{.data.$secret}" &>/dev/null; then
+              echo "::warning::Secret '$secret' not found in telemetryflow-secrets"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then
+            echo "::error::Required secrets are missing. Run scripts/generate-secrets.sh first."
+            exit 1
+          fi
+
+      - name: Install CRDs
+        run: bash scripts/install-crds.sh
+
+      - name: Deploy via Helm
+        run: |
+          helm upgrade "$RELEASE_NAME" "$HELM_CHART" \
+            --install \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            -f helm/telemetryflow/values.yaml \
+            -f manifest/tfo-production.yaml \
+            --timeout 10m \
+            --wait \
+            --history-max 5
+
+      - name: Smoke Test
+        run: |
+          BACKEND_URL="$(kubectl get svc "$RELEASE_NAME"-tfo-backend -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")"
+          if [ -z "$BACKEND_URL" ]; then
+            echo "No external IP found, skipping smoke test"
+            exit 0
+          fi
+          HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" "http://${BACKEND_URL}:8080/health/live" --max-time 10 || echo "000")"
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "::warning::Smoke test returned HTTP $HTTP_CODE"
+          else
+            echo "Smoke test passed (HTTP 200)"
+          fi
+
+      - name: Print Pod Status
+        if: always()
+        run: kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/instance="$RELEASE_NAME"
+
+      - name: Print HPA Status
+        if: always()
+        run: kubectl get hpa -n "$NAMESPACE" || echo "No HPA resources found"
+
+      - name: Cleanup kubeconfig
+        if: always()
+        run: rm -f "$HOME/.kube/config"

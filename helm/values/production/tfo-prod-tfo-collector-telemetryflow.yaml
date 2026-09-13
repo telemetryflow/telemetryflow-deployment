@@ -1,0 +1,149 @@
+##############################################################################
+# TFO Collector — TelemetryFlow Platform (Production)
+#
+# Standalone collector-only values file.
+# Use when deploying centralized collectors on the Platform Cluster.
+#
+# Usage:
+#   helm upgrade --install tfo-collector-telemetryflow \
+#     helm/telemetryflow \
+#     -f helm/telemetryflow/values.yaml \
+#     -f helm/values/production/tfo-production.yaml \
+#     -f helm/values/production/tfo-prod-tfo-collector-telemetryflow.yaml \
+#     -n observability --create-namespace
+#
+# Collector : tfo-collector-telemetryflow
+# Secret    : tfo-collector-telemetryflow-secret (must exist before deploy)
+# Namespace : observability
+#
+# Secrets   : create: false — provision via ESO/Vault BEFORE deploying
+#   kubectl apply -f helm/values/production/secrets/tfo-prod-secret-telemetryflow.yaml
+##############################################################################
+
+tfoCollector:
+  enabled: true
+  name: tfo-collector-telemetryflow
+
+  image:
+    pullPolicy: Always
+
+  serviceAccount:
+    name: tfo-collector-telemetryflow
+
+  envFromSecrets:
+    - name: tfo-collector-telemetryflow-secret
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "" # cluster default (RKE2 local-path; set to a replicated class for HA)
+    mountPath: /var/lib/otelcol
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 75
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  config:
+    processors:
+      resource:
+        attributes:
+          - key: service.namespace
+            value: telemetryflow
+            action: upsert
+          - key: deployment.environment
+            value: production
+            action: upsert
+      batch:
+        timeout: 3s
+        send_batch_size: 2000
+        send_batch_max_size: 4000
+      memory_limiter:
+        limit_mib: 3500
+        spike_limit_mib: 700
+        check_interval: 3s
+    exporters:
+      otlp_http/backend:
+        endpoint: "https://api.telemetryflow.id"
+        headers:
+          X-Service-Namespace: "telemetryflow"
+          X-TelemetryFlow-Key-ID: "${env:TELEMETRYFLOW_API_KEY_ID}"
+          X-TelemetryFlow-Key-Secret: "${env:TELEMETRYFLOW_API_KEY_SECRET}"
+        tls:
+          insecure: false
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+          max_elapsed_time: 600s
+        sending_queue:
+          enabled: true
+          num_consumers: 4   # prod: 4 per replica; throughput scales via HPA (2-8 replicas)
+          queue_size: 5000
+      prometheusremotewrite/tfo:
+        endpoint: "https://api.telemetryflow.id/v2/prometheus/write"
+        timeout: 30s
+        tls:
+          insecure: false
+        headers:
+          X-TelemetryFlow-Key-ID: "${env:TELEMETRYFLOW_API_KEY_ID}"
+          X-TelemetryFlow-Key-Secret: "${env:TELEMETRYFLOW_API_KEY_SECRET}"
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+          max_elapsed_time: 600s
+
+    service:
+      pipelines:
+        traces:
+          receivers: [tfootlp]
+          processors: [memory_limiter, k8s_attributes, resource, attributes/agent, batch]
+          exporters: [otlp_http/backend, span_metrics, service_graph]
+        metrics:
+          receivers: [tfootlp]
+          processors:
+            - memory_limiter
+            - k8s_attributes
+            - resource
+            - transform/cadvisor
+            - transform/hubble
+            - attributes/agent
+            - batch
+          exporters: [otlp_http/backend, prometheus]
+        metrics/span_metrics:
+          receivers: [span_metrics]
+          processors: [memory_limiter, batch]
+          exporters: [otlp_http/backend, prometheus]
+        metrics/service_graph:
+          receivers: [service_graph]
+          processors: [memory_limiter, batch]
+          exporters: [otlp_http/backend, prometheus]
+        metrics/k8s-prometheus:
+          receivers: [prometheus/k8s]
+          processors: [memory_limiter, batch]
+          exporters: [prometheusremotewrite/tfo]
+        logs:
+          receivers: [tfootlp]
+          processors: [memory_limiter, k8s_attributes, resource, attributes/agent, batch]
+          exporters: [otlp_http/backend]
+
+  affinity: {}
+  nodeSelector: {}
+
+secrets:
+  create: false

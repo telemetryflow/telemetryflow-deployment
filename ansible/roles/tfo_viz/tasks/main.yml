@@ -1,0 +1,49 @@
+---
+- name: Create viz directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_platform_config_dir }}"
+
+- name: Deploy nginx configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ tfo_platform_config_dir }}/nginx.conf"
+    mode: "0644"
+  notify: restart tfo viz
+
+- name: Deploy viz docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_viz_compose_file }}"
+    mode: "0644"
+  notify: restart tfo viz
+
+- name: Pull viz image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_viz_image }}"
+    image: "{{ tfo_viz_image }}"
+  tags: [pull]
+
+- name: Start viz
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.viz.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]
+
+- name: Wait for viz health check
+  ansible.builtin.uri:
+    url: "http://{{ tfo_viz_container_ip }}:{{ tfo_viz_http_port }}/health"
+    method: GET
+    status_code: 200
+  register: _viz_health
+  until: _viz_health.status == 200
+  retries: 15
+  delay: 2
+  tags: [healthcheck]

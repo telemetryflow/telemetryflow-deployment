@@ -19,7 +19,7 @@ OUT_BASE="$ROOT_DIR/ansible-k8s/artifacts/cluster"
 
 AWS_PROFILE="${AWS_PROFILE:-"{AWS_ACCOUNT_ID}_AdministratorAccess"}"
 AWS_REGION="${AWS_REGION:-"{AWS_DEFAULT_REGION}"}"
-SSH_KEY="${SSH_KEY:-$ROOT_DIR/ansible-k8s/keys/tfo-ec2-demo-key.pem}"
+SSH_KEY="${SSH_KEY:-$ROOT_DIR/ansible-k8s/keys/tfo-example-demo.pem}"
 SSH_USER="${SSH_USER:-admin}"
 
 info(){ echo "==> $*"; }
@@ -36,7 +36,7 @@ USAGE
 ENV
   AWS_PROFILE (default $AWS_PROFILE)
   AWS_REGION  (default $AWS_REGION)
-  SSH_KEY     (default ansible-k8s/keys/tfo-ec2-demo-key.pem)
+  SSH_KEY     (default ansible-k8s/keys/tfo-example-demo.pem)
   SSH_USER    (default $SSH_USER)
 USAGE_EOF
 }

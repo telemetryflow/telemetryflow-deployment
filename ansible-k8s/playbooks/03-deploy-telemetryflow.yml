@@ -1,0 +1,6 @@
+---
+- name: Deploy TelemetryFlow via Helm
+  hosts: masters[0]
+  become: true
+  roles:
+    - helm

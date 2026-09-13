@@ -1,0 +1,5 @@
+---
+- name: Install Docker
+  hosts: tfo_agents:tfo_platform
+  roles:
+    - role: docker_install

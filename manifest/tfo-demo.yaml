@@ -1,0 +1,125 @@
+global:
+  environment: staging
+  clusterName: tfo-demo
+  timezone: Asia/Jakarta
+  domain: staging.telemetryflow.local
+  tls:
+    enabled: false
+  ingress:
+    enabled: true
+    className: nginx
+  podDisruptionBudget:
+    enabled: false
+
+tfoAgent:
+  image:
+    repository: telemetryflow/telemetryflow-agent
+    tag: "1.3.2"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+tfoCollector:
+  image:
+    repository: telemetryflow/telemetryflow-collector
+    tag: "1.3.0"
+  replicas: 1
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+tfoBackend:
+  image:
+    repository: "{AWS_ACCOUNT_ID}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/telemetryflow/telemetryflow-platform"
+    tag: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  env:
+    NODE_ENV: staging
+  ingress:
+    enabled: true
+    host: api.staging.telemetryflow.local
+  initContainers:
+    seeds:
+      enabled: true
+
+tfoViz:
+  image:
+    repository: "{AWS_ACCOUNT_ID}.dkr.ecr.{AWS_DEFAULT_REGION}.amazonaws.com/telemetryflow/telemetryflow-viz"
+    tag: "latest"
+  replicas: 1
+  ingress:
+    enabled: true
+    host: staging.telemetryflow.local
+
+postgresql:
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+clickhouse:
+  persistence:
+    size: 50Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+cacheRedis:
+  persistence:
+    size: 5Gi
+
+redisMaster:
+  persistence:
+    size: 10Gi
+
+nats:
+  persistence:
+    size: 10Gi
+
+secrets:
+  create: true
+  backend:
+    SESSION_SECRET: "<CHANGE_ME>"
+    JWT_SECRET: "<CHANGE_ME>"
+    JWT_REFRESH_SECRET: "<CHANGE_ME>"
+    ENCRYPTION_KEY: "<CHANGE_ME>"
+    MFA_ENCRYPTION_KEY: "<CHANGE_ME>"
+    LLM_ENCRYPTION_KEY: "<CHANGE_ME>"
+    DB_MONITORING_ENCRYPTION_KEY: "<CHANGE_ME>"
+    POSTGRES_PASSWORD: "<CHANGE_ME>"
+    CLICKHOUSE_PASSWORD: "<CHANGE_ME>"
+    REDIS_PASSWORD: "<CHANGE_ME>"
+    SMTP_PASSWORD: "<CHANGE_ME>"
+    # Agent API Keys — source: .env-telemetryflow [4] AUTHENTICATION & SSO
+    TELEMETRYFLOW_API_KEY_ID: "<CHANGE_ME>"
+    TELEMETRYFLOW_API_KEY_SECRET: "<CHANGE_ME>"
+    TELEMETRYFLOW_VIZ_PASSWORD: "<CHANGE_ME>"
+    RECAPTCHA_SECRET_KEY: "<CHANGE_ME>"
+    ADMIN_PASSWORD: "<CHANGE_ME>"
+    SUPER_ADMIN_PASSWORD: "<CHANGE_ME>"

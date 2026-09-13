@@ -1,0 +1,14 @@
+---
+tfo_nats_image: "nats:2-alpine"
+tfo_nats_container_name: "telemetryflow_platform_nats"
+tfo_nats_restart_policy: "unless-stopped"
+tfo_nats_log_max_size: "50m"
+tfo_nats_log_max_file: "5"
+
+tfo_nats_client_port: 4222
+tfo_nats_management_port: 8222
+tfo_nats_container_ip: "172.152.152.40"
+
+tfo_nats_data_dir: "{{ tfo_platform_install_dir }}/data/nats"
+
+tfo_nats_compose_file: "{{ tfo_platform_install_dir }}/docker-compose.nats.yml"

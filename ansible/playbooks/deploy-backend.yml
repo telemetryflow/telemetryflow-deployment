@@ -1,0 +1,5 @@
+---
+- name: Deploy backend
+  hosts: tfo_node
+  roles:
+    - role: tfo_backend

@@ -1,0 +1,7 @@
+---
+- name: Restart tfo agent
+  ansible.builtin.systemd:
+    name: "{{ tfo_agent_service_name }}"
+    state: restarted
+    daemon_reload: true
+  listen: restart tfo agent

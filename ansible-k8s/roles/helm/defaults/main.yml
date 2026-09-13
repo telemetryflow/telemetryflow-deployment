@@ -1,0 +1,22 @@
+---
+telemetryflow_namespace: observability
+telemetryflow_release_name: telemetryflow
+
+# Deployment environment — selects the deploy script and the values overlay:
+#   demo       -> scripts/deploy-demo.sh      + helm/values/demo/tfo-demo.yaml
+#   staging    -> scripts/deploy-staging.sh   + helm/values/staging/tfo-staging.yaml
+#   production -> scripts/deploy-production.sh+ helm/values/production/tfo-production.yaml
+telemetryflow_env: demo
+
+# Local umbrella chart + scripts in this repo.
+telemetryflow_chart_path: "{{ playbook_dir }}/../../helm/telemetryflow"
+telemetryflow_scripts_path: "{{ playbook_dir }}/../../scripts"
+
+# Staging area on the master node. The deploy scripts resolve chart/manifest
+# paths relative to their own location, so the bundle must mirror the repo
+# layout: <bundle>/scripts/, <bundle>/helm/telemetryflow/, <bundle>/helm/values/<env>/.
+telemetryflow_bundle_dir: /tmp/tfo-deploy
+
+# Demo is ephemeral: uninstall the previous release before deploying so every
+# run starts from a clean state (seeds re-run, no stale resources).
+telemetryflow_uninstall_first: "{{ (telemetryflow_env == 'demo') | bool }}"

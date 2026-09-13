@@ -1,0 +1,14 @@
+TelemetryFlow Agent deployed.
+
+Release    : {{ .Release.Name }}
+Namespace  : {{ include "telemetryflow.namespace" . }}
+Cluster    : {{ .Values.global.clusterName }}
+
+Workloads:
+  DaemonSet   tfo-agent       — per-node OS metrics (node_exporter, cAdvisor, Fluent Bit)
+  Deployment  tfo-agent-k8s   — single-replica K8s state collector + cluster sync
+
+Verify:
+  kubectl -n {{ include "telemetryflow.namespace" . }} get daemonset tfo-agent
+  kubectl -n {{ include "telemetryflow.namespace" . }} get deployment tfo-agent-k8s
+  kubectl -n {{ include "telemetryflow.namespace" . }} logs ds/tfo-agent --tail=50

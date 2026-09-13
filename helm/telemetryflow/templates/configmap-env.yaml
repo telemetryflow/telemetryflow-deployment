@@ -1,0 +1,240 @@
+{{/*
+TelemetryFlow Platform — Environment ConfigMap + Secret
+Converted from docker-compose .env
+
+Split strategy:
+  ConfigMap (tfo-backend-config):   Non-sensitive configuration
+  Secret    (tfo-backend-secrets):  Passwords, tokens, encryption keys, API credentials
+
+This is referenced by:
+  - tfo-platform/deployment.yaml  → envFrom: configMapRef + secretRef
+  - init containers (migrations, seeds) → same envFrom pattern
+*/}}
+
+---
+# ==============================================================================
+# NON-SENSITIVE CONFIGURATION (ConfigMap)
+# Contains: service endpoints, feature flags, queue config, logging settings
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tfo-backend-config
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: tfo-backend
+    app.kubernetes.io/component: backend
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  # ── Application ──────────────────────────────────────────────────────────────
+  NODE_ENV: {{ .Values.tfoBackend.env.NODE_ENV | default "production" | quote }}
+  PORT: {{ .Values.tfoBackend.ports.http | toString | quote }}
+  TZ: {{ .Values.global.timezone | default "UTC" | quote }}
+  CORS_ORIGIN: {{ .Values.tfoBackend.env.CORS_ORIGIN | default "*" | quote }}
+  LOG_LEVEL: {{ .Values.tfoBackend.env.LOG_LEVEL | default "info" | quote }}
+  LOGGER_TYPE: {{ .Values.tfoBackend.env.LOGGER_TYPE | default "winston" | quote }}
+  LOG_PRETTY_PRINT: "false"
+  LOG_FILE_ENABLED: "false"
+  LOG_FILE_DIRNAME: "logs"
+  LOG_FILE_FILENAME: "app-%DATE%.log"
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  POSTGRES_HOST: {{ .Values.tfoBackend.env.DATABASE_HOST | default "postgresql" | quote }}
+  POSTGRES_PORT: {{ .Values.tfoBackend.env.DATABASE_PORT | default "5432" | quote }}
+  POSTGRES_DB: {{ .Values.tfoBackend.env.DATABASE_NAME | default "telemetryflow_db" | quote }}
+  POSTGRES_USERNAME: {{ .Values.tfoBackend.env.DATABASE_USERNAME | default "postgres" | quote }}
+  DATABASE_HOST: {{ .Values.tfoBackend.env.DATABASE_HOST | default "postgresql" | quote }}
+  DATABASE_PORT: {{ .Values.tfoBackend.env.DATABASE_PORT | default "5432" | quote }}
+  DATABASE_NAME: {{ .Values.tfoBackend.env.DATABASE_NAME | default "telemetryflow_db" | quote }}
+  DATABASE_USERNAME: {{ .Values.tfoBackend.env.DATABASE_USERNAME | default "postgres" | quote }}
+  DATABASE_SSL: {{ .Values.tfoBackend.env.DATABASE_SSL | default "false" | quote }}
+  DATABASE_POOL_SIZE: {{ .Values.tfoBackend.env.DATABASE_POOL_SIZE | default "20" | quote }}
+  DATABASE_LOGGING: {{ .Values.tfoBackend.env.DATABASE_LOGGING | default "false" | quote }}
+  DB_LOGGING: {{ .Values.tfoBackend.env.DB_LOGGING | default "false" | quote }}
+
+  # ── ClickHouse ────────────────────────────────────────────────────────────────
+  CLICKHOUSE_HOST: {{ .Values.tfoBackend.env.CLICKHOUSE_HOST | default "clickhouse" | quote }}
+  CLICKHOUSE_PORT: {{ .Values.tfoBackend.env.CLICKHOUSE_PORT | default "8123" | quote }}
+  CLICKHOUSE_HTTP_PORT: {{ .Values.tfoBackend.env.CLICKHOUSE_HTTP_PORT | default "8123" | quote }}
+  CLICKHOUSE_NATIVE_PORT: {{ .Values.tfoBackend.env.CLICKHOUSE_NATIVE_PORT | default "9000" | quote }}
+  CLICKHOUSE_USER: {{ .Values.tfoBackend.env.CLICKHOUSE_USER | default "tfo_admin" | quote }}
+  CLICKHOUSE_DB: {{ .Values.clickhouse.database | default "telemetryflow_db" | quote }}
+  CLICKHOUSE_LOGS_ENABLED: {{ .Values.tfoBackend.env.CLICKHOUSE_LOGS_ENABLED | default "false" | quote }}
+  CLICKHOUSE_LOGS_TABLE: "logs"
+  CLICKHOUSE_LOGS_DEFAULT_ORG_ID: {{ .Values.tfoBackend.env.CLICKHOUSE_LOGS_DEFAULT_ORG_ID | default "TELEMETRIDATA" | quote }}
+  CLICKHOUSE_LOGS_SERVICE_NAME: {{ .Values.tfoBackend.env.CLICKHOUSE_LOGS_SERVICE_NAME | default "telemetryflow-platform" | quote }}
+  CLICKHOUSE_FLUSH_INTERVAL: "2000"
+  CLICKHOUSE_BUFFER_LIMIT: "100"
+  # ClickHouse ingestion tuning (async_insert — see docs/wiki/08-operations/telemetry-ingestion-scaling.md)
+  CH_ASYNC_INSERT: {{ .Values.tfoBackend.env.CH_ASYNC_INSERT | default "1" | quote }}
+  CH_WAIT_FOR_ASYNC_INSERT: {{ .Values.tfoBackend.env.CH_WAIT_FOR_ASYNC_INSERT | default "1" | quote }}
+  CH_ASYNC_BUSY_TIMEOUT_MS: {{ .Values.tfoBackend.env.CH_ASYNC_BUSY_TIMEOUT_MS | default "1000" | quote }}
+  CH_ASYNC_MAX_DATA_SIZE: {{ .Values.tfoBackend.env.CH_ASYNC_MAX_DATA_SIZE | default "10000000" | quote }}
+
+  # ── Redis (Cache L2 + Session) ────────────────────────────────────────────────
+  # cache-redis uses allkeys-lru — safe to evict cache entries under pressure
+  REDIS_HOST: {{ .Values.tfoBackend.env.REDIS_HOST | default "cache-redis" | quote }}
+  REDIS_PORT: {{ .Values.tfoBackend.env.REDIS_PORT | default "6379" | quote }}
+  REDIS_DB: "0"
+  REDIS_SESSION_DB: "0"
+  REDIS_CACHE_DB: "0"
+  REDIS_MAX_MEMORY: "512mb"
+
+  # ── BullMQ (dedicated queue-valkey, noeviction) ───────────────────────────────
+  # queue-valkey uses noeviction — job data must never be silently evicted
+  BULLMQ_REDIS_HOST: "queue-valkey"
+  BULLMQ_REDIS_PORT: "6379"
+  BULLMQ_REDIS_DB: "0"
+  ENABLE_BULLMQ: "true"
+  QUEUE_ENABLED: "true"
+  QUEUE_OTLP_CONCURRENCY: "10"
+  QUEUE_DLQ_ENABLED: {{ .Values.tfoBackend.env.QUEUE_DLQ_ENABLED | default "true" | quote }}
+  QUEUE_EVENTS_CONCURRENCY: "5"
+  QUEUE_TELEMETRY_CONCURRENCY: "10"
+  QUEUE_ALERTS_CONCURRENCY: "5"
+  QUEUE_NOTIFICATIONS_CONCURRENCY: "3"
+  QUEUE_AGGREGATION_CONCURRENCY: "3"
+  QUEUE_CLEANUP_CONCURRENCY: "2"
+  QUEUE_MAX_ATTEMPTS: "3"
+  QUEUE_BACKOFF_DELAY: "1000"
+  QUEUE_KEEP_COMPLETED: "100"
+  QUEUE_KEEP_FAILED: "500"
+  QUEUE_COMPLETED_AGE: "3600"
+  QUEUE_FAILED_AGE: "86400"
+
+  # ── NATS ──────────────────────────────────────────────────────────────────────
+  NATS_URL: {{ .Values.tfoBackend.env.NATS_URL | default "nats://nats:4222" | quote }}
+  NATS_CLUSTER_ID: {{ .Values.tfoBackend.env.NATS_CLUSTER_ID | default "telemetryflow-cluster" | quote }}
+
+  # ── JWT / Session ─────────────────────────────────────────────────────────────
+  JWT_ACCESS_EXPIRY: {{ .Values.tfoBackend.env.JWT_ACCESS_EXPIRY | default "24h" | quote }}
+  JWT_REFRESH_EXPIRY: {{ .Values.tfoBackend.env.JWT_REFRESH_EXPIRY | default "30d" | quote }}
+
+  # ── OpenTelemetry ─────────────────────────────────────────────────────────────
+  OTEL_ENABLED: "true"
+  OTEL_SERVICE_NAME: {{ .Values.tfoBackend.env.OTEL_SERVICE_NAME | default "tfo-backend" | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.tfoBackend.env.OTEL_EXPORTER_OTLP_ENDPOINT | default "http://tfo-collector:4318" | quote }}
+  OTEL_COLLECTOR_ENDPOINT: "http://tfo-collector:4318"
+  OTEL_LOGS_ENABLED: "true"
+  OTLP_GRPC_ENDPOINT: "0.0.0.0:4317"
+  OTLP_HTTP_ENDPOINT: "0.0.0.0:4318"
+
+  # ── Cache ──────────────────────────────────────────────────────────────────────
+  CACHE_ENABLED: "true"
+  CACHE_L1_ENABLED: "true"
+  CACHE_L1_TTL: "60"
+  CACHE_L1_MAX_SIZE: {{ .Values.tfoBackend.env.CACHE_L1_MAX_SIZE | default "5000" | quote }}
+  CACHE_L2_ENABLED: "true"
+  CACHE_L2_TTL: {{ .Values.tfoBackend.env.CACHE_L2_TTL | default "3600" | quote }}
+  CACHE_KEY_PREFIX: "tf:cache:"
+
+  # ── Secrets Provider ────────────────────────────────────────────────────────────
+  # SecretsService backend: "env" (default) or "aws-ssm" (AWS SSM Parameter Store).
+  SECRETS_PROVIDER: {{ .Values.tfoBackend.env.SECRETS_PROVIDER | default "env" | quote }}
+  {{- if .Values.tfoBackend.env.SECRETS_SSM_PREFIX }}
+  SECRETS_SSM_PREFIX: {{ .Values.tfoBackend.env.SECRETS_SSM_PREFIX | quote }}
+  {{- end }}
+
+  # ── Data Limits ───────────────────────────────────────────────────────────────
+  # Hard limit: absolute max rows per fetch (overrides TELEMETRYFLOW_LIMIT_DATA)
+  TELEMETRYFLOW_LIMIT_DATA_MAX: {{ .Values.tfoBackend.env.TELEMETRYFLOW_LIMIT_DATA_MAX | default "100000" | quote }}
+
+  # ── Telemetry Data Config ──────────────────────────────────────────────────────
+  TELEMETRY_METRICS_RETENTION_DAYS: "90"
+  TELEMETRY_LOGS_RETENTION_DAYS: "30"
+  TELEMETRY_TRACES_RETENTION_DAYS: "14"
+  TELEMETRY_AGGREGATION_ENABLED: "true"
+  TELEMETRY_AGGREGATION_INTERVALS: "1m,5m,15m,1h,1d"
+  TELEMETRY_BATCH_SIZE: "1000"
+  TELEMETRY_FLUSH_INTERVAL: "5000"
+  TELEMETRY_REALTIME_TYPES: "metrics,logs,traces"
+
+  # ── Agent Config ───────────────────────────────────────────────────────────────
+  AGENT_HEARTBEAT_INTERVAL: "60"
+  AGENT_INACTIVE_THRESHOLD: "15"
+  AGENT_CLEANUP_DAYS: "30"
+
+  # ── Rate Limiting ─────────────────────────────────────────────────────────────
+  THROTTLE_TTL: "60000"
+  THROTTLE_LIMIT: "100"
+  THROTTLE_INGESTION_TTL: "60000"
+  THROTTLE_INGESTION_LIMIT: "1000"
+
+  # ── SMTP (disabled by default in K8s) ─────────────────────────────────────────
+  SMTP_ENABLED: "false"
+  SMTP_HOST: "localhost"
+  SMTP_PORT: "1025"
+  SMTP_SECURE: "false"
+  SMTP_FROM: "TelemetryFlow <noreply@telemetryflow.id>"
+
+  # ── Kubernetes Identity ────────────────────────────────────────────────────────
+  CLUSTER_NAME: {{ .Values.global.clusterName | default "tfo-rke2" | quote }}
+  K8S_NAMESPACE: {{ include "telemetryflow.namespace" . | quote }}
+  SERVICE_NAMESPACE: {{ include "telemetryflow.namespace" . | quote }}
+  SERVICE_VERSION: {{ .Chart.AppVersion | quote }}
+
+  # ── SSO Providers ─────────────────────────────────────────────────────────────
+  TELEMETRYFLOW_SSO_GOOGLE: {{ .Values.tfoBackend.env.TELEMETRYFLOW_SSO_GOOGLE | default "false" | quote }}
+  TELEMETRYFLOW_SSO_MICROSOFT: {{ .Values.tfoBackend.env.TELEMETRYFLOW_SSO_MICROSOFT | default "false" | quote }}
+  TELEMETRYFLOW_SSO_APPLE: {{ .Values.tfoBackend.env.TELEMETRYFLOW_SSO_APPLE | default "false" | quote }}
+  TELEMETRYFLOW_SSO_SLACK: {{ .Values.tfoBackend.env.TELEMETRYFLOW_SSO_SLACK | default "false" | quote }}
+  TELEMETRYFLOW_SSO_COGNITO: {{ .Values.tfoBackend.env.TELEMETRYFLOW_SSO_COGNITO | default "false" | quote }}
+  TELEMETRYFLOW_SSO_GITHUB: {{ .Values.tfoBackend.env.TELEMETRYFLOW_SSO_GITHUB | default "false" | quote }}
+  TELEMETRYFLOW_SSO_AUTH0: {{ .Values.tfoBackend.env.TELEMETRYFLOW_SSO_AUTH0 | default "false" | quote }}
+
+  # ── Auth0 SSO (requires TELEMETRYFLOW_SSO_AUTH0=true) ─────────────────────────
+  AUTH0_DOMAIN: {{ .Values.tfoBackend.env.AUTH0_DOMAIN | default "your-tenant.auth0.com" | quote }}
+  AUTH0_CLIENT_ID: {{ .Values.tfoBackend.env.AUTH0_CLIENT_ID | default "" | quote }}
+  AUTH0_AUDIENCE: {{ .Values.tfoBackend.env.AUTH0_AUDIENCE | default "" | quote }}
+  AUTH0_CALLBACK_URL: {{ .Values.tfoBackend.env.AUTH0_CALLBACK_URL | default "" | quote }}
+
+  # ── Default Telemetry Context ──────────────────────────────────────────────────
+  DEFAULT_REGION_CODE: "APS3"
+  DEFAULT_WORKSPACE_CODE: "TELEMETRYFLOW-POC"
+  DEFAULT_TENANT_CODE: "TELEMETRIDATA"
+
+  # ── Default QAN Monitoring ─────────────────────────────────────────────────────
+  DB_MONITORING_ALLOW_INTERNAL_HOST: "true"
+
+{{- /*
+  tfo-viz env vars are rendered inline in tfo-viz/deployment.yaml
+  via values.tfoViz.env, producing the tfo-viz-env ConfigMap.
+  No separate ConfigMap needed here.
+*/}}
+  # ── Backend endpoint / OTEL health (in-cluster) ─────────────────────────────
+  TELEMETRYFLOW_BACKEND_ENDPOINT: "http://tfo-backend.observability.svc.cluster.local:3100/api/v2"
+  OTEL_COLLECTOR_HEALTH_URL: "http://tfo-collector.observability.svc.cluster.local:13133/"
+
+  # ── Valkey memory ceilings (mirror cache/queue config.maxmemory) ────────────
+  VALKEY_MAX_MEMORY: "1gb"
+  QUEUE_VALKEY_MAX_MEMORY: "1gb"
+
+  # ── Queue rate limits (jobs/sec) ────────────────────────────────────────────
+  QUEUE_OTLP_RATE_LIMIT: "1000"
+  QUEUE_ALERT_RATE_LIMIT: "100"
+  QUEUE_AGGREGATION_RATE_LIMIT: "500"
+
+  # ── ClickHouse insert tuning ────────────────────────────────────────────────
+  CLICKHOUSE_CONFIG_PROFILE: "default"
+  CH_INSERT_BATCH_ROWS: "1000"
+  CH_INSERT_FLUSH_MS: "1000"
+
+  # ── Log file rotation (winston-daily-rotate-file) ───────────────────────────
+  LOG_COLORIZE: "false"
+  LOG_FILE_DATE_PATTERN: "YYYY-MM-DD"
+  LOG_FILE_ZIPPED: "true"
+  LOG_FILE_MAX_SIZE: "20m"
+  LOG_FILE_MAX_FILES: "14d"
+  LOG_FILE_JSON: "false"
+
+  # ── Fluent Bit direct shipping (off in k8s — tfo-agent handles logs) ────────
+  FLUENTBIT_ENABLED: "false"
+  FLUENTBIT_HOST: "127.0.0.1"
+  FLUENTBIT_PORT: "2020"
+  FLUENTBIT_TAG: "tfo.logs"
+  FLUENTBIT_RECONNECT_INTERVAL: "5"
+  FLUENTBIT_REQUIRE_ACK: "false"
+  FLUENTBIT_TIMEOUT: "3"
+
+  # ── reCAPTCHA ────────────────────────────────────────────────────────────────
+  RECAPTCHA_MIN_SCORE: "0.5"

@@ -1,0 +1,12 @@
+{{- /* The namespace can be created by the chart (default) or pre-created
+   externally (global.createNamespace=false — e.g. helm --create-namespace,
+   kubectl, or another operator) to avoid ownership conflicts. */ -}}
+{{- if .Values.global.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "telemetryflow.namespace" . }}
+  labels:
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+
+{{- end }}

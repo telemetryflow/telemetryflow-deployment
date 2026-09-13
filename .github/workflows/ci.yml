@@ -1,0 +1,188 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      operator: ${{ steps.filter.outputs.operator }}
+      helm: ${{ steps.filter.outputs.helm }}
+      ansible: ${{ steps.filter.outputs.ansible }}
+      compose: ${{ steps.filter.outputs.compose }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            operator:
+              - 'operator/**'
+            helm:
+              - 'helm/**'
+            ansible:
+              - 'ansible/**'
+              - 'ansible-k8s/**'
+            compose:
+              - 'docker-compose.yml'
+            docs:
+              - '**/*.md'
+
+  lint-helm:
+    name: Lint Helm Chart
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.helm == 'true' || github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Helm Lint
+        run: helm lint helm/telemetryflow --strict
+
+      - name: Helm Template (Debug)
+        run: |
+          helm template telemetryflow helm/telemetryflow \
+            --namespace telemetryflow \
+            -f helm/telemetryflow/values.yaml \
+            -f manifest/tfo-staging.yaml \
+            --debug > /dev/null
+
+  lint-ansible:
+    name: Lint Ansible Playbooks
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.ansible == 'true' || github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint
+
+      - name: Install required collections
+        run: ansible-galaxy collection install community.docker community.general ansible.posix
+
+      - name: Lint ansible/
+        working-directory: ansible
+        run: ansible-lint
+
+      - name: Lint ansible-k8s/
+        working-directory: ansible-k8s
+        run: ansible-lint
+
+  lint-operator:
+    name: Lint Operator (Go)
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.operator == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: operator/go.sum
+
+      - name: Go Vet
+        working-directory: operator
+        run: go vet ./...
+
+      - name: Go Fmt Check
+        working-directory: operator
+        run: |
+          fmt_output="$(gofmt -l .)"
+          if [ -n "$fmt_output" ]; then
+            echo "::error::Files not formatted: $fmt_output"
+            exit 1
+          fi
+
+  test-operator:
+    name: Test Operator (envtest)
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.operator == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: operator/go.sum
+
+      - name: Run Tests
+        working-directory: operator
+        run: make test
+
+  validate-compose:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.compose == 'true' || github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: docker compose -f docker-compose.yml config --quiet
+
+  security-scan:
+    name: Scan for Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.TELEMETRYFLOW_GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.TELEMETRYFLOW_GITLEAKS_LICENSE }}
+
+  validate-docs:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.docs == 'true' || github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Markdown Files Exist
+        run: |
+          REQUIRED_FILES=("README.md" "CHANGELOG.md" "CONTRIBUTING.md" "SECURITY.md")
+          for f in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Required file missing: $f"
+              exit 1
+            fi
+          done
+
+      - name: Check Markdown Links
+        uses: tcort/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: yes

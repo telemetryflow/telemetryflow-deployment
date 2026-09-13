@@ -1,0 +1,188 @@
+{{- if .Values.tfoViz.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.tfoViz.name }}-nginx
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    {{- .Values.tfoViz.nginxConfig.serverBlock | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.tfoViz.name }}-env
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.tfoViz.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.tfoViz.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.tfoViz.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.tfoViz.ports.http }}
+      targetPort: {{ .Values.tfoViz.ports.http }}
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.tfoViz.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+    app.kubernetes.io/component: frontend
+    {{- include "telemetryflow.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.tfoViz.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: frontend
+      annotations:
+        checksum/nginx: {{ .Values.tfoViz.nginxConfig.serverBlock | sha256sum }}
+        checksum/image: {{ printf "%s:%s" .Values.tfoViz.image.repository .Values.tfoViz.image.tag | sha256sum }}
+    spec:
+      {{- include "telemetryflow.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.tfoViz.serviceAccount.create }}
+      serviceAccountName: {{ .Values.tfoViz.serviceAccount.name }}
+      automountServiceAccountToken: false
+      {{- end }}
+      {{- with .Values.tfoViz.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: tfo-viz
+          image: "{{ .Values.tfoViz.image.repository }}:{{ .Values.tfoViz.image.tag }}"
+          imagePullPolicy: {{ .Values.tfoViz.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.tfoViz.ports.http }}
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.tfoViz.name }}-env
+          {{- with .Values.tfoViz.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tfoViz.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tfoViz.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.tfoViz.resources | nindent 12 }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ .Values.tfoViz.name }}-nginx
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.tfoViz.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tfoViz.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+{{- if .Values.tfoViz.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.tfoViz.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+  {{- with .Values.tfoViz.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.tfoViz.ingress.className }}
+  ingressClassName: {{ .Values.tfoViz.ingress.className }}
+  {{- end }}
+  {{- if .Values.tfoViz.ingress.tls }}
+  tls:
+    {{- toYaml .Values.tfoViz.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.tfoViz.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ $.Values.tfoViz.name }}
+                port:
+                  number: {{ $.Values.tfoViz.ports.http }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+---
+{{- if .Values.tfoViz.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.tfoViz.name }}
+  namespace: {{ include "telemetryflow.namespace" . }}
+spec:
+  minAvailable: {{ .Values.tfoViz.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.tfoViz.name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end }}

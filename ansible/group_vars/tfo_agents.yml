@@ -1,0 +1,12 @@
+---
+# Variables for TelemetryFlow agent hosts.
+# These hosts run the tfo-agent as a systemd service (native binary).
+
+tfo_agent_install_dir: "/opt/telemetryflow-agent"
+tfo_agent_config_dir: "/etc/telemetryflow-agent"
+tfo_agent_log_dir: "/var/log/telemetryflow-agent"
+tfo_agent_user: "tfo-agent"
+tfo_agent_group: "tfo-agent"
+
+tfo_agent_log_level: "info"
+tfo_agent_health_check_port: 13133

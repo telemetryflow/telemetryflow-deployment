@@ -1,0 +1,90 @@
+---
+- name: Set node type fact
+  ansible.builtin.set_fact:
+    rke2_node_type: "{{ 'server' if inventory_hostname in groups['masters'] else 'agent' }}"
+
+- name: Download RKE2 install script
+  ansible.builtin.get_url:
+    url: "{{ rke2_install_script_url }}"
+    dest: /tmp/rke2-install.sh
+    mode: "0755"
+
+- name: Create RKE2 config directory
+  ansible.builtin.file:
+    path: "{{ rke2_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Deploy RKE2 config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ rke2_config_dir }}/config.yaml"
+    mode: "0600"
+  notify: Restart rke2-{{ rke2_node_type }}
+
+- name: Install RKE2 (server)
+  ansible.builtin.command: /tmp/rke2-install.sh
+  args:
+    creates: "{{ rke2_binary_path }}/rke2"
+  environment:
+    INSTALL_RKE2_VERSION: "{{ rke2_version }}"
+    INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+  when: rke2_node_type == 'server'
+
+- name: Install RKE2 (agent)
+  ansible.builtin.command: /tmp/rke2-install.sh
+  args:
+    creates: "{{ rke2_binary_path }}/rke2"
+  environment:
+    INSTALL_RKE2_VERSION: "{{ rke2_version }}"
+    INSTALL_RKE2_CHANNEL: "{{ rke2_channel }}"
+    INSTALL_RKE2_TYPE: agent
+  when: rke2_node_type == 'agent'
+
+- name: Enable and start RKE2 server
+  ansible.builtin.systemd:
+    name: rke2-server
+    state: started
+    enabled: true
+  when: rke2_node_type == 'server'
+
+- name: Wait for RKE2 server API to be ready
+  # Checked from the node itself: the API port is typically firewalled to the
+  # VPC CIDR (rke2_api_access_cidrs), so a controller-side check against the
+  # public IP would time out even when the cluster is healthy.
+  ansible.builtin.wait_for:
+    port: "{{ rke2_api_port }}"
+    host: 127.0.0.1
+    delay: 10
+    timeout: 300
+  when: rke2_node_type == 'server'
+
+- name: Enable and start RKE2 agent
+  ansible.builtin.systemd:
+    name: rke2-agent
+    state: started
+    enabled: true
+  when: rke2_node_type == 'agent'
+
+- name: Apply RKE2 config changes immediately
+  # Handlers normally run at the END of the play — after the readiness waits
+  # below. A changed server URL/token would then never reach the running
+  # process before the wait times out, and a failed play skips the handler
+  # entirely. Placed after install/enable so the service exists on a fresh
+  # node (a restart right after first start is harmless).
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for RKE2 agent to be ready
+  # Same as above: kubelet has no port to probe, so wait for the agent's
+  # connection to the server supervisor port from the worker itself.
+  ansible.builtin.wait_for:
+    port: 10250
+    host: 127.0.0.1
+    delay: 10
+    timeout: 300
+  when: rke2_node_type == 'agent'
+
+- name: Clean up install script
+  ansible.builtin.file:
+    path: /tmp/rke2-install.sh
+    state: absent

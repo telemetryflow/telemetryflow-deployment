@@ -1,0 +1,19 @@
+---
+tfo_agent_version: "latest"
+tfo_agent_binary_url: "https://releases.telemetryflow.io/agent/{{ tfo_agent_version }}/tfo-agent-linux-amd64"
+tfo_agent_binary_checksum: ""
+tfo_agent_install_dir: "/opt/telemetryflow-agent"
+tfo_agent_config_dir: "/etc/telemetryflow-agent"
+tfo_agent_log_dir: "/var/log/telemetryflow-agent"
+tfo_agent_user: "tfo-agent"
+tfo_agent_group: "tfo-agent"
+
+tfo_agent_collector_host: "{{ tfo_collector_host }}"
+tfo_agent_collector_grpc_port: "{{ tfo_collector_grpc_port }}"
+tfo_agent_health_check_port: 13133
+tfo_agent_log_level: "info"
+
+tfo_agent_service_name: "tfo-agent"
+tfo_agent_config_file: "{{ tfo_agent_config_dir }}/tfo-agent.yaml"
+tfo_agent_env_file: "{{ tfo_agent_config_dir }}/tfo-agent.env"
+tfo_agent_service_file: "/etc/systemd/system/{{ tfo_agent_service_name }}.service"

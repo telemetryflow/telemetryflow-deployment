@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: {{ tfo_postgres_image }}
+    container_name: {{ tfo_postgres_container_name }}
+    restart: {{ tfo_postgres_restart_policy }}
+    environment:
+      POSTGRES_DB: {{ tfo_postgres_db }}
+      POSTGRES_USER: {{ tfo_postgres_user }}
+      POSTGRES_PASSWORD: {{ tfo_postgres_password }}
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_postgres_container_ip }}
+    ports:
+      - "{{ tfo_postgres_port }}:{{ tfo_postgres_port }}"
+    volumes:
+      - {{ tfo_postgres_data_dir }}:/var/lib/postgresql/data
+      - {{ tfo_platform_config_dir }}/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_postgres_log_max_size }}"
+        max-file: "{{ tfo_postgres_log_max_file }}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ tfo_postgres_user }} -d {{ tfo_postgres_db }}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.telemetryflow.service=postgres"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

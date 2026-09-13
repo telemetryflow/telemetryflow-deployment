@@ -1,0 +1,59 @@
+---
+- name: Create backend directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ tfo_platform_install_dir }}"
+    - "{{ tfo_platform_config_dir }}"
+    - "{{ tfo_platform_log_dir }}/backend"
+
+- name: Deploy backend environment file
+  ansible.builtin.template:
+    src: backend.env.j2
+    dest: "{{ tfo_backend_env_file }}"
+    mode: "0600"
+  notify: restart tfo backend
+
+- name: Deploy backend docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ tfo_backend_compose_file }}"
+    mode: "0644"
+  notify: restart tfo backend
+
+- name: Pull backend image
+  community.docker.docker_image_pull:
+    name: "{{ tfo_backend_image }}"
+    image: "{{ tfo_backend_image }}"
+  tags: [pull]
+
+- name: Start backend
+  community.docker.docker_compose_v2:
+    project_src: "{{ tfo_platform_install_dir }}"
+    files:
+      - docker-compose.backend.yml
+    project_name: "{{ tfo_platform_compose_project_name }}"
+    state: present
+  tags: [start]
+
+- name: Wait for backend health check
+  ansible.builtin.uri:
+    url: "http://{{ tfo_backend_container_ip }}:{{ tfo_backend_port }}/health"
+    method: GET
+    status_code: 200
+  register: _backend_health
+  until: _backend_health.status == 200
+  retries: "{{ tfo_backend_healthcheck_retries }}"
+  delay: "{{ tfo_backend_healthcheck_interval | regex_replace('[^0-9]', '') | int }}"
+  tags: [healthcheck]
+
+- name: Run backend migrations
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ tfo_backend_container_name }}
+      ./backend migrate
+  changed_when: true
+  when: _backend_health.status == 200
+  tags: [migrations]

@@ -1,0 +1,31 @@
+services:
+  valkey:
+    image: {{ tfo_valkey_image }}
+    container_name: {{ tfo_valkey_container_name }}
+    restart: {{ tfo_valkey_restart_policy }}
+    command: valkey-server --requirepass {{ tfo_valkey_password }} --appendonly yes
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_valkey_container_ip }}
+    ports:
+      - "{{ tfo_valkey_port }}:{{ tfo_valkey_port }}"
+    volumes:
+      - {{ tfo_valkey_data_dir }}:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_valkey_log_max_size }}"
+        max-file: "{{ tfo_valkey_log_max_file }}"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "{{ tfo_valkey_password }}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "com.telemetryflow.service=valkey"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}

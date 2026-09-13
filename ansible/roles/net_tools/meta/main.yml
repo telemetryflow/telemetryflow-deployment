@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  author: TelemetryFlow
+  description: Install common network and diagnostic tools
+  license: proprietary
+  min_ansible_version: "2.15"
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+dependencies: []

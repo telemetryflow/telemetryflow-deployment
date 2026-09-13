@@ -1,0 +1,32 @@
+services:
+  backend:
+    image: {{ tfo_backend_image }}
+    container_name: {{ tfo_backend_container_name }}
+    restart: {{ tfo_backend_restart_policy }}
+    env_file:
+      - {{ tfo_backend_env_file }}
+    networks:
+      {{ tfo_platform_network_name }}:
+        ipv4_address: {{ tfo_backend_container_ip }}
+    ports:
+      - "{{ tfo_backend_port }}:{{ tfo_backend_port }}"
+    volumes:
+      - "{{ tfo_platform_log_dir }}/backend:/var/log/telemetryflow"
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ tfo_backend_log_max_size }}"
+        max-file: "{{ tfo_backend_log_max_file }}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:{{ tfo_backend_port }}/health"]
+      interval: {{ tfo_backend_healthcheck_interval }}
+      timeout: {{ tfo_backend_healthcheck_timeout }}
+      retries: {{ tfo_backend_healthcheck_retries }}
+    labels:
+      - "com.telemetryflow.service=backend"
+      - "com.telemetryflow.environment={{ environment }}"
+
+networks:
+  {{ tfo_platform_network_name }}:
+    external: true
+    name: {{ tfo_platform_network_name }}
