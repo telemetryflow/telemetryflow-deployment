@@ -1,0 +1,70 @@
+# Ansible
+ansible/*.retry
+ansible/.ansible/
+ansible/roles/*/files/secrets*
+ansible-k8s/.ansible/
+ansible-k8s/*.retry
+ansible-k8s/roles/*/files/secrets*
+ansible-k8s/kubeconfig
+ansible-k8s/values/
+
+# Helm
+helm/**/charts/
+helm/**/Chart.lock
+helm/**/*.tgz
+
+# Operator
+operator/bin/
+operator/testbin/
+operator/__debug_bin*
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+*secret*
+*credential*
+*.key
+*.pem
+*.p12
+.env
+.env.*
+*.log
+# ...except the sanitized example template
+!.env.example
+# ...except Helm chart templates (secrets.yaml etc. are required for the chart to render)
+!helm/**/templates/*.yaml
+# Terraform state (defense-in-depth; see also terraform/.gitignore)
+*.tfstate*
+.terraform/
+# SSH private keys — never commit
+*.pem
+keys/
+
+# macOS / runtime junk
+.DS_Store
+artifacts/
+terraform.tfvars
+ansible-k8s/inventory/group_vars/all/token.yml
