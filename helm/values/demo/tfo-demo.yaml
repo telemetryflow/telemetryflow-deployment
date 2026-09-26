@@ -405,7 +405,7 @@ tfoBackend:
     LOG_LEVEL: "info"
     LOG_FORMAT: "json"
     LOGGER_TYPE: "winston"
-    LOG_PRETTY_PRINT: "true"
+    LOG_PRETTY_PRINT: "false"
     LOG_FILE_ENABLED: "false"
     CORS_ORIGIN: "*"
 

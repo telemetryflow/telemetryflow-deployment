@@ -36,3 +36,18 @@
       - ansible_processor_vcpus >= 2
     fail_msg: "Node does not meet minimum requirements (2 CPU, 2GB RAM)"
     quiet: true
+
+- name: Disable Amazon CloudWatch Agent
+  when: disable_cloudwatch_agent | bool
+  tags:
+    - cloudwatch
+  block:
+    - name: Gather installed service facts
+      ansible.builtin.service_facts:
+
+    - name: Stop and disable the CloudWatch Agent
+      ansible.builtin.systemd:
+        name: amazon-cloudwatch-agent
+        state: stopped
+        enabled: false
+      when: "'amazon-cloudwatch-agent.service' in ansible_facts.services"

@@ -11,3 +11,9 @@ common_packages:
   - htop
 
 timezone: UTC
+
+# Host-level Amazon CloudWatch Agent.
+# TFO-DEMO nodes ship the amazon-cloudwatch-agent systemd service; we disable it
+# (telemetry is collected in-cluster by the TFO agent/collector, not CloudWatch).
+# Set to false to leave the CloudWatch Agent running/enabled on the nodes.
+disable_cloudwatch_agent: true
